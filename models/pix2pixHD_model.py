@@ -42,8 +42,11 @@ class Pix2PixHDModel(BaseModel):
             netD_input_nc = input_nc + opt.output_nc
             if not opt.no_instance:
                 netD_input_nc += 1
+            if opt.sn:
+                print('Activating Spectral Norm in D')
+                opt.norm = 'no_norm'
             self.netD = networks.define_D(netD_input_nc, opt.ndf, opt.n_layers_D, opt.norm, use_sigmoid, 
-                                          opt.num_D, not opt.no_ganFeat_loss, gpu_ids=self.gpu_ids)
+                                          opt.num_D, not opt.no_ganFeat_loss, gpu_ids=self.gpu_ids, sn=opt.sn)
 
         ### Encoder network
         if self.gen_features:          
@@ -110,7 +113,7 @@ class Pix2PixHDModel(BaseModel):
 
     def encode_input(self, label_map, inst_map=None, real_image=None, feat_map=None, infer=False):             
         if self.opt.label_nc == 0:
-            input_label = label_map.data.cuda()
+            input_label = label_map.data
         else:
             # create one-hot vector for label map 
             size = label_map.size()
@@ -122,22 +125,22 @@ class Pix2PixHDModel(BaseModel):
 
         # get edges from instance map
         if not self.opt.no_instance:
-            inst_map = inst_map.data.cuda()
+            inst_map = inst_map.data
             edge_map = self.get_edges(inst_map)
             input_label = torch.cat((input_label, edge_map), dim=1)         
         input_label = Variable(input_label, volatile=infer)
 
         # real images for training
         if real_image is not None:
-            real_image = Variable(real_image.data.cuda())
+            real_image = Variable(real_image.data)
 
         # instance map for feature encoding
         if self.use_features:
             # get precomputed feature maps
             if self.opt.load_features:
-                feat_map = Variable(feat_map.data.cuda())
+                feat_map = Variable(feat_map.data)
             if self.opt.label_feat:
-                inst_map = label_map.cuda()
+                inst_map = label_map
 
         return input_label, inst_map, real_image, feat_map
 
@@ -197,6 +200,7 @@ class Pix2PixHDModel(BaseModel):
         image = Variable(image) if image is not None else None
         input_label, inst_map, real_image, _ = self.encode_input(Variable(label), Variable(inst), image, infer=True)
 
+        self.netG.eval()
         # Fake Generation
         if self.use_features:
             if self.opt.use_encoded_image:
@@ -209,11 +213,10 @@ class Pix2PixHDModel(BaseModel):
         else:
             input_concat = input_label        
            
-        if torch.__version__.startswith('0.4'):
-            with torch.no_grad():
-                fake_image = self.netG.forward(input_concat)
-        else:
+
+        with torch.no_grad():
             fake_image = self.netG.forward(input_concat)
+
         return fake_image
 
     def sample_features(self, inst): 
@@ -301,4 +304,9 @@ class InferenceModel(Pix2PixHDModel):
         label, inst = inp
         return self.inference(label, inst)
 
+    def inference(self, input_img):
+        self.netG.eval()
+        with torch.no_grad():
+            fake_image = self.netG(input_img)
+        return fake_image
         

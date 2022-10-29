@@ -1,9 +1,12 @@
 from __future__ import print_function
+import cv2
 import torch
 import numpy as np
 from PIL import Image
 import numpy as np
 import os
+
+from util.misc import tensor2numpy, convert_range
 
 # Converts a Tensor into a Numpy array
 # |imtype|: the desired type of the converted numpy array
@@ -48,6 +51,35 @@ def mkdirs(paths):
 def mkdir(path):
     if not os.path.exists(path):
         os.makedirs(path)
+
+
+def preprocess_image(img, device='cuda'):
+    """
+    Prepares image for forward pass
+    :param img:
+    :param device:
+    :return:
+    """
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = convert_range(img, drange_in=(0, 255), drange_out=(-1, 1))
+    img = np.expand_dims(img, axis=0)
+    img = torch.from_numpy(img).permute(dims=(0, 3, 1, 2))
+    img = img.to(device)
+    return img
+
+
+def postprocess_image(img):
+    """
+    Processes generated image of neural network
+    :param img:
+    :param mask:
+    :param add_bckg:
+    :return:
+    """
+    img = tensor2numpy(img.squeeze())
+    img = convert_range(img, drange_in=(-1, 1), drange_out=(0, 255))
+
+    return img
 
 ###############################################################################
 # Code from

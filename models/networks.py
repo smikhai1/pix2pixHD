@@ -4,6 +4,8 @@ import functools
 from torch.autograd import Variable
 import numpy as np
 
+from torch.nn.utils import spectral_norm
+
 ###############################################################################
 # Functions
 ###############################################################################
@@ -20,6 +22,8 @@ def get_norm_layer(norm_type='instance'):
         norm_layer = functools.partial(nn.BatchNorm2d, affine=True)
     elif norm_type == 'instance':
         norm_layer = functools.partial(nn.InstanceNorm2d, affine=False)
+    elif norm_type == 'no_norm':
+        norm_layer = nn.Identity
     else:
         raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
     return norm_layer
@@ -38,14 +42,16 @@ def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_glo
         raise('generator not implemented!')
     print(netG)
     if len(gpu_ids) > 0:
-        assert(torch.cuda.is_available())   
-        netG.cuda(gpu_ids[0])
+        assert(torch.cuda.is_available())
+        #netG.cuda(gpu_ids[0])
     netG.apply(weights_init)
     return netG
 
-def define_D(input_nc, ndf, n_layers_D, norm='instance', use_sigmoid=False, num_D=1, getIntermFeat=False, gpu_ids=[]):        
+def define_D(input_nc, ndf, n_layers_D, norm='instance', use_sigmoid=False, num_D=1, getIntermFeat=False, gpu_ids=[],
+             sn=True
+             ):
     norm_layer = get_norm_layer(norm_type=norm)   
-    netD = MultiscaleDiscriminator(input_nc, ndf, n_layers_D, norm_layer, use_sigmoid, num_D, getIntermFeat)   
+    netD = MultiscaleDiscriminator(input_nc, ndf, n_layers_D, norm_layer, use_sigmoid, num_D, getIntermFeat, sn=sn)
     print(netD)
     if len(gpu_ids) > 0:
         assert(torch.cuda.is_available())
@@ -289,16 +295,25 @@ class Encoder(nn.Module):
                     outputs_mean[indices[:,0] + b, indices[:,1] + j, indices[:,2], indices[:,3]] = mean_feat                       
         return outputs_mean
 
+
+class CustomConv2d(nn.Conv2d):
+
+    def __init__(self, *args, use_sn=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if use_sn:
+            self = spectral_norm(self)
+
+
 class MultiscaleDiscriminator(nn.Module):
     def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, 
-                 use_sigmoid=False, num_D=3, getIntermFeat=False):
+                 use_sigmoid=False, num_D=3, getIntermFeat=False, sn=False):
         super(MultiscaleDiscriminator, self).__init__()
         self.num_D = num_D
         self.n_layers = n_layers
         self.getIntermFeat = getIntermFeat
      
         for i in range(num_D):
-            netD = NLayerDiscriminator(input_nc, ndf, n_layers, norm_layer, use_sigmoid, getIntermFeat)
+            netD = NLayerDiscriminator(input_nc, ndf, n_layers, norm_layer, use_sigmoid, getIntermFeat, sn=sn)
             if getIntermFeat:                                
                 for j in range(n_layers+2):
                     setattr(self, 'scale'+str(i)+'_layer'+str(j), getattr(netD, 'model'+str(j)))                                   
@@ -329,36 +344,38 @@ class MultiscaleDiscriminator(nn.Module):
             if i != (num_D-1):
                 input_downsampled = self.downsample(input_downsampled)
         return result
-        
+
 # Defines the PatchGAN discriminator with the specified arguments.
 class NLayerDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, getIntermFeat=False):
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False, getIntermFeat=False,
+                 sn=False
+                 ):
         super(NLayerDiscriminator, self).__init__()
         self.getIntermFeat = getIntermFeat
         self.n_layers = n_layers
 
         kw = 4
         padw = int(np.ceil((kw-1.0)/2))
-        sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]]
+        sequence = [[CustomConv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw, use_sn=sn), nn.LeakyReLU(0.2, True)]]
 
         nf = ndf
         for n in range(1, n_layers):
             nf_prev = nf
             nf = min(nf * 2, 512)
             sequence += [[
-                nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=2, padding=padw),
+                CustomConv2d(nf_prev, nf, kernel_size=kw, stride=2, padding=padw, use_sn=sn),
                 norm_layer(nf), nn.LeakyReLU(0.2, True)
             ]]
 
         nf_prev = nf
         nf = min(nf * 2, 512)
         sequence += [[
-            nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=1, padding=padw),
+            CustomConv2d(nf_prev, nf, kernel_size=kw, stride=1, padding=padw, use_sn=sn),
             norm_layer(nf),
             nn.LeakyReLU(0.2, True)
         ]]
 
-        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=1, padding=padw)]]
+        sequence += [[CustomConv2d(nf, 1, kernel_size=kw, stride=1, padding=padw, use_sn=sn)]]
 
         if use_sigmoid:
             sequence += [[nn.Sigmoid()]]

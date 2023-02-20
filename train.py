@@ -1,3 +1,4 @@
+from glob import glob
 import time
 import os
 import numpy as np
@@ -6,6 +7,8 @@ from torch.autograd import Variable
 from collections import OrderedDict
 from subprocess import call
 import fractions
+from tqdm import tqdm
+
 def lcm(a,b): return abs(a * b)/fractions.gcd(a,b) if a and b else 0
 
 from options.train_options import TrainOptions
@@ -13,6 +16,33 @@ from data.data_loader import CreateDataLoader
 from models.models import create_model
 import util.util as util
 from util.visualizer import Visualizer
+from util.util import preprocess_image, postprocess_image
+from util.misc import save_image, load_image
+
+
+@torch.no_grad()
+def run_inference(model, epoch, opt):
+    save_dir = os.path.join(opt.results_dir, f'{epoch:0>5}')
+    imgs_result_dir = os.path.join(save_dir, 'imgs')
+    imgs_src_result_dir = os.path.join(save_dir, 'src+res')
+
+    os.makedirs(imgs_result_dir, exist_ok=True)
+    os.makedirs(imgs_src_result_dir, exist_ok=True)
+
+    for img_path in tqdm(glob(os.path.join(opt.test_data_dir, '*.*'))):
+        img = load_image(img_path, to_rgb=False, size=opt.img_size)
+        img_name = os.path.basename(img_path)
+        img_proc = preprocess_image(img, device=opt.device)
+        if opt.fp16:
+            img_proc = img_proc.to(dtype=torch.float16)
+
+        fake_img = model.simple_inference(img_proc)
+        fake_img = postprocess_image(fake_img)
+        merged = np.concatenate((img, fake_img[..., ::-1]), axis=1)
+
+        save_image(os.path.join(imgs_result_dir, img_name), fake_img, to_bgr=True)
+        save_image(os.path.join(imgs_src_result_dir, img_name), merged, to_bgr=False)
+
 
 opt = TrainOptions().parse()
 iter_path = os.path.join(opt.checkpoints_dir, opt.name, 'iter.txt')
@@ -58,6 +88,7 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
     if epoch != start_epoch:
         epoch_iter = epoch_iter % dataset_size
     for i, data in enumerate(dataset, start=epoch_iter):
+        model.train()
         if total_steps % opt.print_freq == print_delta:
             iter_start_time = time.time()
         total_steps += opt.batchSize
@@ -67,7 +98,7 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
         save_fake = total_steps % opt.display_freq == display_delta
 
         ############## Forward Pass ######################
-        losses, generated = model(Variable(data['label']), Variable(data['inst']), 
+        losses, generated = model(Variable(data['label']), Variable(data['inst']),
             Variable(data['image']), Variable(data['feat']), infer=save_fake)
 
         # sum per device losses
@@ -119,7 +150,7 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
 
         if epoch_iter >= dataset_size:
             break
-       
+
     # end of epoch 
     iter_end_time = time.time()
     print('End of epoch %d / %d \t Time Taken: %d sec' %
@@ -139,3 +170,11 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
     ### linearly decay learning rate after certain iterations
     if epoch > opt.niter:
         model.module.update_learning_rate()
+
+    ### run inference on the specified directory
+    if opt.inference_epoch_freq > 0 and epoch % opt.inference_epoch_freq == 0:
+        print('Inferencing at epoch ', epoch)
+        model.eval()
+        run_inference(model.module, epoch, opt)
+        model.train()
+

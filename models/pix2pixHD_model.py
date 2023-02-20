@@ -288,6 +288,12 @@ class Pix2PixHDModel(BaseModel):
         if self.opt.verbose:
             print('------------ Now also finetuning global generator -----------')
 
+    def simple_inference(self, input_img):
+        self.netG.eval()
+        with torch.no_grad():
+            fake_image = self.netG(input_img)
+        return fake_image
+
     def update_learning_rate(self):
         lrd = self.opt.lr / self.opt.niter_decay
         lr = self.old_lr - lrd        

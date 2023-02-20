@@ -32,4 +32,11 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--pool_size', type=int, default=0, help='the size of image buffer that stores previously generated images')
 
         self.parser.add_argument('--sn', action='store_true', default=False, help='Activate Spectral norm in D')
+
+        self.parser.add_argument('--test_data_dir', type=str, default=None, help='Path to the test data')
+        self.parser.add_argument('--img_size', type=int, default=256)
+        self.parser.add_argument('--results_dir', type=str, default='./inference_results', help='saves results here.')
+        self.parser.add_argument('--device', type=str, default='cuda')
+        self.parser.add_argument('--inference_epoch_freq', type=int, default=0, help='sets the frequency of inference')
+
         self.isTrain = True

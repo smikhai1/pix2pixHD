@@ -25,6 +25,20 @@ def convert_range(img: np.ndarray,
 def tensor2numpy(x):
     return x.detach().cpu().numpy().transpose(1,2,0)
 
+
+def resize_by_longest_side(img, size):
+    h, w = img.shape[:2]
+    scale = size / max(h, w)
+    if h >= w:
+        new_h = size
+        new_w = int(scale * w)
+    else:
+        new_h = int(scale * h)
+        new_w = size
+    img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return img
+
+
 def load_image(image_path: str, to_rgb: bool = True, size=None) -> np.ndarray:
     """
     Loads image using OpenCV and cast it from BGR to RGB if necessary
@@ -40,7 +54,7 @@ def load_image(image_path: str, to_rgb: bool = True, size=None) -> np.ndarray:
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     if size is not None:
-        image = cv2.resize(image, (size, size), interpolation=cv2.INTER_AREA)
+        image = resize_by_longest_side(image, size)
     return image
 
 

@@ -1,6 +1,9 @@
 from glob import glob
 import time
 import os
+import os.path as osp
+
+import cv2
 import numpy as np
 import torch
 from torch.autograd import Variable
@@ -17,11 +20,11 @@ from models.models import create_model
 import util.util as util
 from util.visualizer import Visualizer
 from util.util import preprocess_image, postprocess_image
-from util.misc import save_image, load_image
+from util.misc import save_image, load_image, create_images_grid
 
 
 @torch.no_grad()
-def run_inference(model, epoch, opt):
+def run_inference(model, epoch, opt, num_rows_in_grid=3):
     save_dir = os.path.join(opt.results_dir, f'{epoch:0>5}')
     imgs_result_dir = os.path.join(save_dir, 'imgs')
     imgs_src_result_dir = os.path.join(save_dir, 'src+res')
@@ -29,7 +32,8 @@ def run_inference(model, epoch, opt):
     os.makedirs(imgs_result_dir, exist_ok=True)
     os.makedirs(imgs_src_result_dir, exist_ok=True)
 
-    for img_path in tqdm(glob(os.path.join(opt.test_data_dir, '*.*'))):
+    grid = []
+    for img_path in tqdm(sorted(glob(os.path.join(opt.test_data_dir, '*.*')))):
         img = load_image(img_path, to_rgb=False, size=opt.img_size)
         img_name = os.path.basename(img_path)
         img_proc = preprocess_image(img, device=opt.device)
@@ -42,6 +46,11 @@ def run_inference(model, epoch, opt):
 
         save_image(os.path.join(imgs_result_dir, img_name), fake_img, to_bgr=True)
         save_image(os.path.join(imgs_src_result_dir, img_name), merged, to_bgr=False)
+
+        grid.append(fake_img.astype(np.uint8))
+
+    grid = create_images_grid(grid, rows=num_rows_in_grid)
+    cv2.imwrite(osp.join(save_dir, f'grid-{epoch:>05}.jpg'), grid)
 
 
 opt = TrainOptions().parse()
@@ -88,6 +97,9 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
     if epoch != start_epoch:
         epoch_iter = epoch_iter % dataset_size
     for i, data in enumerate(dataset, start=epoch_iter):
+        if i > 10:
+            break
+
         model.train()
         if total_steps % opt.print_freq == print_delta:
             iter_start_time = time.time()

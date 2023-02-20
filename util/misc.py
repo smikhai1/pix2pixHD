@@ -1,4 +1,7 @@
+import math
+
 import numpy as np
+from PIL import Image
 from typing import Tuple
 import cv2
 
@@ -63,3 +66,21 @@ def save_image(path: str, img: np.ndarray, to_bgr: bool = True) -> None:
     if to_bgr:
         img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     cv2.imwrite(path, img)
+
+
+def create_images_grid(images, scale=1.0, rows=3):
+    heights = [img.shape[0] for img in images]
+    widths = [img.shape[1] for img in images]
+    h, w = max(heights), max(widths)
+    w = int(w*scale)
+    h = int(h*scale)
+    height = rows * h
+    cols = math.ceil(len(images) / rows)
+    width = cols * w
+    canvas = Image.new('RGB', (width, height), 'white')
+
+    for i, img in enumerate(images):
+        img = Image.fromarray(img)
+        canvas.paste(img, (w*(i % cols), h*(i // cols)))
+
+    return np.array(canvas)

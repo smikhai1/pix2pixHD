@@ -97,9 +97,6 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
     if epoch != start_epoch:
         epoch_iter = epoch_iter % dataset_size
     for i, data in enumerate(dataset, start=epoch_iter):
-        if i > 10:
-            break
-
         model.train()
         if total_steps % opt.print_freq == print_delta:
             iter_start_time = time.time()

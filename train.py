@@ -33,9 +33,11 @@ def run_inference(model, epoch, opt, num_rows_in_grid=3):
     os.makedirs(imgs_src_result_dir, exist_ok=True)
 
     grid = []
-    for img_path in tqdm(sorted(glob(os.path.join(opt.test_data_dir, '*.*')))):
+    for img_name in tqdm(sorted(os.listdir(opt.test_data_dir))):
+        if img_name.startswith('.'):
+            continue
+        img_path = os.path.join(opt.test_data_dir, img_name)
         img = load_image(img_path, to_rgb=False, size=opt.img_size)
-        img_name = os.path.basename(img_path)
         img_proc = preprocess_image(img, device=opt.device)
         if opt.fp16:
             img_proc = img_proc.to(dtype=torch.float16)
@@ -50,6 +52,7 @@ def run_inference(model, epoch, opt, num_rows_in_grid=3):
         grid.append(fake_img.astype(np.uint8))
 
     grid = create_images_grid(grid, rows=num_rows_in_grid)
+    grid = cv2.cvtColor(grid, cv2.COLOR_RGB2BGR)
     cv2.imwrite(osp.join(save_dir, f'grid-{epoch:>05}.jpg'), grid)
 
 

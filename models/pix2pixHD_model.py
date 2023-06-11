@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn as nn
 import os
 from torch.autograd import Variable
 from util.image_pool import ImagePool
@@ -110,6 +111,12 @@ class Pix2PixHDModel(BaseModel):
             # optimizer D                        
             params = list(self.netD.parameters())    
             self.optimizer_D = torch.optim.Adam(params, lr=opt.lr, betas=(opt.beta1, 0.999))
+
+            # load optimizers state dicts
+            if opt.continue_train or opt.load_pretrain:
+                self.load_optimizer(self.optimizer_G, 'G', opt.which_epoch, pretrained_path)
+                self.load_optimizer(self.optimizer_D, 'D', opt.which_epoch, pretrained_path)
+                print('[DEBUG] Optimizers were loaded successfully!')
 
     def encode_input(self, label_map, inst_map=None, real_image=None, feat_map=None, infer=False):             
         if self.opt.label_nc == 0:
@@ -278,6 +285,8 @@ class Pix2PixHDModel(BaseModel):
         self.save_network(self.netD, 'D', which_epoch, self.gpu_ids)
         if self.gen_features:
             self.save_network(self.netE, 'E', which_epoch, self.gpu_ids)
+        self.save_optimizer(self.optimizer_G, 'G', which_epoch, self.gpu_ids)
+        self.save_optimizer(self.optimizer_D, 'D', which_epoch, self.gpu_ids)
 
     def update_fixed_params(self):
         # after fixing the global generator for a number of iterations, also start finetuning it
@@ -315,4 +324,25 @@ class InferenceModel(Pix2PixHDModel):
         with torch.no_grad():
             fake_image = self.netG(input_img)
         return fake_image
-        
+
+
+class GlobalGenerator(nn.Module):
+    def __init__(self, input_nc=3, output_nc=3, ngf=64, netG='global', n_downsample_global=4,
+                 n_blocks_global=9, n_local_enhancers=1, n_blocks_local=3, norm='instance',
+                 device='cuda'):
+        super().__init__()
+        model = networks.define_G(input_nc, output_nc, ngf, netG, n_downsample_global,
+                                      n_blocks_global, n_local_enhancers,
+                                      n_blocks_local, norm)
+        model = model.eval().to(device=device)
+        self.device = device
+        self.model = model
+
+    def load_ckpt(self, ckpt_path):
+        state_dict = torch.load(ckpt_path, map_location=self.device)
+        self.model.load_state_dict(state_dict, strict=True)
+
+    @torch.no_grad()
+    def forward(self, img):
+        fake_image = self.model(img)
+        return fake_image

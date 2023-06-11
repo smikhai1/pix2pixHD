@@ -1,6 +1,7 @@
 import os
 import torch
 import sys
+import warnings
 
 class BaseModel(torch.nn.Module):
     def name(self):
@@ -85,7 +86,24 @@ class BaseModel(torch.nn.Module):
                             not_initialized.add(k.split('.')[0])
                     
                     print(sorted(not_initialized))
-                    network.load_state_dict(model_dict)                  
+                    network.load_state_dict(model_dict)
+
+    def save_optimizer(self, optim, optim_label, epoch_label, gpu_ids):
+        save_filename = '%s_opt_%s.pth' % (epoch_label, optim_label)
+        save_path = os.path.join(self.save_dir, save_filename)
+        torch.save(optim.state_dict(), save_path)
+
+    def load_optimizer(self, optim, optim_label, epoch_label, save_dir=''):
+        fname = '%s_opt_%s.pth' % (epoch_label, optim_label)
+        if not save_dir:
+            save_dir = self.save_dir
+
+        state_dict_fp = os.path.join(save_dir, fname)
+        if not os.path.isfile(state_dict_fp):
+            warnings.warn('You are attempting to load model without its optimizer!')
+
+        state_dict = torch.load(state_dict_fp)
+        optim.load_state_dict(state_dict)
 
     def update_learning_rate():
         pass

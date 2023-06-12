@@ -39,4 +39,9 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--device', type=str, default='cuda')
         self.parser.add_argument('--inference_epoch_freq', type=int, default=0, help='sets the frequency of inference')
 
+        self.parser.add_argument('--color_pres_loss_w', type=float, default=0.0,
+                                 help='Weight of the color preservation loss')
+        self.parser.add_argument('--color_stats_loss_w', type=float, default=0.0,
+                                 help='Weight of the color statistics preservation loss')
+
         self.isTrain = True

@@ -4,6 +4,7 @@ import torch.nn as nn
 import os
 from torch.autograd import Variable
 from util.image_pool import ImagePool
+from util.color_loss import ColorMatchingLoss, StatsLoss
 from .base_model import BaseModel
 from . import networks
 
@@ -79,10 +80,17 @@ class Pix2PixHDModel(BaseModel):
             self.criterionFeat = torch.nn.L1Loss()
             if not opt.no_vgg_loss:             
                 self.criterionVGG = networks.VGGLoss(self.gpu_ids)
-                
-        
+
             # Names so we can breakout loss
             self.loss_names = self.loss_filter('G_GAN','G_GAN_Feat','G_VGG','D_real', 'D_fake')
+
+            if opt.color_pres_loss_w > 0.0:
+                self.color_pres_loss = ColorMatchingLoss(yuv_channels=(1, 2), num_samples=1024)
+                self.loss_names.append('G_color_pres')
+
+            if opt.color_stats_loss_w > 0.0:
+                self.color_stats_loss = StatsLoss(yuv_channels=(1, 2))
+                self.loss_names.append('G_color_stats')
 
             # initialize optimizers
             # optimizer G
@@ -198,9 +206,21 @@ class Pix2PixHDModel(BaseModel):
         loss_G_VGG = 0
         if not self.opt.no_vgg_loss:
             loss_G_VGG = self.criterionVGG(fake_image, real_image) * self.opt.lambda_feat
-        
+
+        losses_to_return = self.loss_filter(loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, loss_D_real, loss_D_fake)
+
+        # color preservation loss
+
+        if self.opt.color_pres_loss_w > 0.0:
+            loss_G_color = self.opt.color_pres_loss_w * self.color_pres_loss(fake_image, input_concat)
+            losses_to_return.append(loss_G_color)
+
+        if self.opt.color_stats_loss_w > 0.0:
+            loss_G_color_stats = self.opt.color_stats_loss_w * self.color_stats_loss(fake_image, input_concat)
+            losses_to_return.append(loss_G_color_stats)
+
         # Only return the fake_B image if necessary to save BW
-        return [ self.loss_filter( loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, loss_D_real, loss_D_fake ), None if not infer else fake_image ]
+        return [losses_to_return, None if not infer else fake_image]
 
     def inference(self, label, inst, image=None):
         # Encode Inputs        

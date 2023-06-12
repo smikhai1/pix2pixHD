@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 export CUDA_VISIBLE_DEVICES=3
-EXP_NAME="default-config-balanced_celeba-mask_blending"
+EXP_NAME="default-config"
 
-CKPTS_DIR="./storage/experiments/default-config-balanced_celeba-mask_blending/checkpoints"
-DATA_ROOT="/home/msidorenko/datasets/stylegan_synth_data/nn_beauty-balanced_celeba"
-TEST_IMAGES_DIR="/home/msidorenko/datasets/test-set-v2/faceapp_set/face-crops"
-RESULTS_ROOT_DIR="./storage/experiments/default-config-balanced_celeba-mask_blending/test_set_results"
+CKPTS_DIR="./storage/experiments/${EXP_NAME}/checkpoints"
+DATA_ROOT=""
+TEST_IMAGES_DIR=""
+RESULTS_ROOT_DIR="./storage/experiments/${EXP_NAME}/test_set_results"
 
 BATCH_SIZE=12
 IMAGE_SIZE=512

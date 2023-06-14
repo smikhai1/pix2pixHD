@@ -24,7 +24,7 @@ from util.misc import save_image, load_image, create_images_grid
 
 
 @torch.no_grad()
-def run_inference(model, epoch, opt, num_rows_in_grid=3):
+def run_inference(model, epoch, opt):
     save_dir = os.path.join(opt.results_dir, f'{epoch:0>5}')
     imgs_result_dir = os.path.join(save_dir, 'imgs')
     imgs_src_result_dir = os.path.join(save_dir, 'src+res')
@@ -51,7 +51,7 @@ def run_inference(model, epoch, opt, num_rows_in_grid=3):
 
         grid.append(fake_img.astype(np.uint8))
 
-    grid = create_images_grid(grid, rows=num_rows_in_grid)
+    grid = create_images_grid(grid, rows=opt.num_rows_in_grid)
     grid = cv2.cvtColor(grid, cv2.COLOR_RGB2BGR)
     cv2.imwrite(osp.join(save_dir, f'grid-{epoch:>05}.jpg'), grid)
 

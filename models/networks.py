@@ -31,10 +31,11 @@ def get_norm_layer(norm_type='instance'):
     return norm_layer
 
 def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1, 
-             n_blocks_local=3, norm='instance', gpu_ids=[]):    
+             n_blocks_local=3, norm='instance', gpu_ids=[], up_block_type='conv_transpose'):
     norm_layer = get_norm_layer(norm_type=norm)     
     if netG == 'global':    
-        netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, norm_layer)       
+        netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, norm_layer,
+                               up_block_type=up_block_type)
     elif netG == 'local':        
         netG = LocalEnhancer(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, 
                                   n_local_enhancers, n_blocks_local, norm_layer)
@@ -136,13 +137,16 @@ class VGGLoss(nn.Module):
 ##############################################################################
 class LocalEnhancer(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=32, n_downsample_global=3, n_blocks_global=9, 
-                 n_local_enhancers=1, n_blocks_local=3, norm_layer=nn.BatchNorm2d, padding_type='reflect'):        
+                 n_local_enhancers=1, n_blocks_local=3, norm_layer=nn.BatchNorm2d, padding_type='reflect',
+                 up_block_type='conv_transpose'):
         super(LocalEnhancer, self).__init__()
         self.n_local_enhancers = n_local_enhancers
-        
+        activation = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+
         ###### global generator model #####           
         ngf_global = ngf * (2**n_local_enhancers)
-        model_global = GlobalGenerator(input_nc, output_nc, ngf_global, n_downsample_global, n_blocks_global, norm_layer).model        
+        model_global = GlobalGenerator(input_nc, output_nc, ngf_global, n_downsample_global, n_blocks_global, norm_layer,
+                                       up_block_type=up_block_type).model
         model_global = [model_global[i] for i in range(len(model_global)-3)] # get rid of final convolution layers        
         self.model = nn.Sequential(*model_global)                
 
@@ -151,17 +155,18 @@ class LocalEnhancer(nn.Module):
             ### downsample            
             ngf_global = ngf * (2**(n_local_enhancers-n))
             model_downsample = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf_global, kernel_size=7, padding=0), 
-                                norm_layer(ngf_global), nn.ReLU(True),
+                                norm_layer(ngf_global), activation,
                                 nn.Conv2d(ngf_global, ngf_global * 2, kernel_size=3, stride=2, padding=1), 
-                                norm_layer(ngf_global * 2), nn.ReLU(True)]
+                                norm_layer(ngf_global * 2), activation]
             ### residual blocks
             model_upsample = []
             for i in range(n_blocks_local):
                 model_upsample += [ResnetBlock(ngf_global * 2, padding_type=padding_type, norm_layer=norm_layer)]
 
             ### upsample
-            model_upsample += [nn.ConvTranspose2d(ngf_global * 2, ngf_global, kernel_size=3, stride=2, padding=1, output_padding=1), 
-                               norm_layer(ngf_global), nn.ReLU(True)]      
+            in_channels = ngf_global * 2
+            out_channels = ngf_global
+            model_upsample += [UpsampleBlock(up_block_type, in_channels, out_channels, norm_layer(out_channels), activation)]
 
             ### final convolution
             if n == n_local_enhancers:                
@@ -189,8 +194,8 @@ class LocalEnhancer(nn.Module):
         return output_prev
 
 class GlobalGenerator(nn.Module):
-    def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=nn.BatchNorm2d, 
-                 padding_type='reflect'):
+    def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=nn.BatchNorm2d,
+                 padding_type='reflect', up_block_type='conv_transpose'):
         assert(n_blocks >= 0)
         super(GlobalGenerator, self).__init__()        
         activation = nn.LeakyReLU(negative_slope=0.2, inplace=True) #nn.ReLU(True)
@@ -210,8 +215,10 @@ class GlobalGenerator(nn.Module):
         ### upsample         
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1),
-                       norm_layer(int(ngf * mult / 2)), activation]
+            in_channels = ngf * mult
+            out_channels = int(ngf * mult / 2)
+            model += [UpsampleBlock(up_block_type, in_channels, out_channels, norm_layer(out_channels), activation)]
+
         model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0), nn.Tanh()]        
         self.model = nn.Sequential(*model)
             
@@ -304,6 +311,31 @@ class CustomConv2d(nn.Conv2d):
         super().__init__(*args, **kwargs)
         if use_sn:
             self = spectral_norm(self)
+
+
+class UpsampleBlock(nn.Module):
+    def __init__(self, upsample_type, in_channels, out_channels, norm_layer, activation_layer,
+                 interpolation_mode='bilinear'):
+        super().__init__()
+        layers = []
+        if upsample_type == 'conv_transpose':
+            layers.append(nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3,
+                                             stride=2, padding=1, output_padding=1)
+                          )
+        elif upsample_type == 'up_conv':
+            layers.append(nn.Upsample(scale_factor=2, mode=interpolation_mode))
+            layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=1))
+        else:
+            raise ValueError('Unknown value for parameter upsample_type: ', upsample_type)
+
+        layers.append(norm_layer)
+        layers.append(activation_layer)
+
+        self.block = nn.Sequential(*layers)
+
+    def forward(self, input):
+        output = self.block(input)
+        return output
 
 
 class MultiscaleDiscriminator(nn.Module):

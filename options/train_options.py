@@ -38,6 +38,7 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--results_dir', type=str, default='./inference_results', help='saves results here.')
         self.parser.add_argument('--device', type=str, default='cuda')
         self.parser.add_argument('--inference_epoch_freq', type=int, default=0, help='sets the frequency of inference')
+        self.parser.add_argument('--num_rows_in_grid', type=int, default=3, help='Number of rows in the results grid')
 
         self.parser.add_argument('--color_pres_loss_w', type=float, default=0.0,
                                  help='Weight of the color preservation loss')

@@ -24,6 +24,8 @@ def get_norm_layer(norm_type='instance'):
         norm_layer = functools.partial(nn.InstanceNorm2d, affine=False)
     elif norm_type == 'no_norm':
         norm_layer = nn.Identity
+    elif norm_type == 'layer':
+        norm_layer = HandyLayerNorm
     else:
         raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
     return norm_layer
@@ -191,7 +193,7 @@ class GlobalGenerator(nn.Module):
                  padding_type='reflect'):
         assert(n_blocks >= 0)
         super(GlobalGenerator, self).__init__()        
-        activation = nn.ReLU(True)        
+        activation = nn.LeakyReLU(negative_slope=0.2, inplace=True) #nn.ReLU(True)
 
         model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0), norm_layer(ngf), activation]
         ### downsample
@@ -431,3 +433,9 @@ class Vgg19(torch.nn.Module):
         h_relu5 = self.slice5(h_relu4)                
         out = [h_relu1, h_relu2, h_relu3, h_relu4, h_relu5]
         return out
+
+
+class HandyLayerNorm(torch.nn.GroupNorm):
+    def __init__(self, num_channels, eps=1e-05, affine=True, device=None, dtype=None):
+        super().__init__(num_groups=1, num_channels=num_channels, eps=eps,
+                         affine=affine, device=device, dtype=dtype)

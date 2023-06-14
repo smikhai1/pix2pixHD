@@ -100,10 +100,10 @@ class BaseModel(torch.nn.Module):
 
         state_dict_fp = os.path.join(save_dir, fname)
         if not os.path.isfile(state_dict_fp):
-            warnings.warn('You are attempting to load model without its optimizer!')
-
-        state_dict = torch.load(state_dict_fp)
-        optim.load_state_dict(state_dict)
+            warnings.warn(f'You are attempting to load model {optim_label} without its optimizer!')
+        else:
+            state_dict = torch.load(state_dict_fp)
+            optim.load_state_dict(state_dict)
 
     def update_learning_rate():
         pass

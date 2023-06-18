@@ -93,6 +93,21 @@ class BaseModel(torch.nn.Module):
         save_path = os.path.join(self.save_dir, save_filename)
         torch.save(optim.state_dict(), save_path)
 
+    @staticmethod
+    def optimizer_to(optim, device):
+        for param in optim.state.values():
+            # Not sure there are any global tensors in the state dict
+            if isinstance(param, torch.Tensor):
+                param.data = param.data.to(device)
+                if param._grad is not None:
+                    param._grad.data = param._grad.data.to(device)
+            elif isinstance(param, dict):
+                for subparam in param.values():
+                    if isinstance(subparam, torch.Tensor):
+                        subparam.data = subparam.data.to(device)
+                        if subparam._grad is not None:
+                            subparam._grad.data = subparam._grad.data.to(device)
+
     def load_optimizer(self, optim, optim_label, epoch_label, save_dir=''):
         fname = '%s_opt_%s.pth' % (epoch_label, optim_label)
         if not save_dir:
@@ -102,8 +117,9 @@ class BaseModel(torch.nn.Module):
         if not os.path.isfile(state_dict_fp):
             warnings.warn(f'You are attempting to load model {optim_label} without its optimizer!')
         else:
-            state_dict = torch.load(state_dict_fp)
+            state_dict = torch.load(state_dict_fp, map_location='cuda')
             optim.load_state_dict(state_dict)
+            self.optimizer_to(optim, 'cuda')
 
     def update_learning_rate():
         pass

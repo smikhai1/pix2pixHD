@@ -53,7 +53,7 @@ def inference(opt):
         img_name = os.path.basename(img_path)
         img_proc = preprocess_image(img, device=opt.device)
 
-        fake_img = model.inference(img_proc)
+        fake_img = model(img_proc)
         fake_img = postprocess_image(fake_img)
         merged = np.concatenate((img, fake_img[..., ::-1]), axis=1)
 

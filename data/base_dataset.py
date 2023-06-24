@@ -1,8 +1,10 @@
 import torch.utils.data as data
 from PIL import Image
 import torchvision.transforms as transforms
+from torchvision.transforms.functional import InterpolationMode
 import numpy as np
 import random
+
 
 class BaseDataset(data.Dataset):
     def __init__(self):
@@ -30,11 +32,11 @@ def get_params(opt, size):
     flip = random.random() > 0.5
     return {'crop_pos': (x, y), 'flip': flip}
 
-def get_transform(opt, params, method=Image.BICUBIC, normalize=True):
+def get_transform(opt, params, method=InterpolationMode.BICUBIC, normalize=True):
     transform_list = []
     if 'resize' in opt.resize_or_crop:
         osize = [opt.loadSize, opt.loadSize]
-        transform_list.append(transforms.Scale(osize, method))   
+        transform_list.append(transforms.Resize(osize, method))
     elif 'scale_width' in opt.resize_or_crop:
         transform_list.append(transforms.Lambda(lambda img: __scale_width(img, opt.loadSize, method)))
         

@@ -219,11 +219,12 @@ class GlobalGenerator(nn.Module):
             out_channels = int(ngf * mult / 2)
             model += [UpsampleBlock(up_block_type, in_channels, out_channels, norm_layer(out_channels), activation)]
 
-        model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0), nn.Tanh()]        
+        model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
         self.model = nn.Sequential(*model)
             
     def forward(self, input):
-        return self.model(input)             
+        out = self.model(input)
+        return input + out
         
 # Define a resnet block
 class ResnetBlock(nn.Module):

@@ -26,7 +26,7 @@ def convert_range(img: np.ndarray,
 
 
 def tensor2numpy(x):
-    return x.detach().cpu().numpy().transpose(1,2,0)
+    return x.detach().cpu().float().numpy().transpose(1,2,0)
 
 
 def resize_by_longest_side(img, size):

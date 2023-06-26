@@ -42,8 +42,8 @@ def run_inference(model, epoch, opt):
         img_proc = preprocess_image(img, device=opt.device)
         if opt.fp16:
             img_proc = img_proc.to(dtype=torch.float16)
-
-        fake_img = model.simple_inference(img_proc)
+        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
+            fake_img = model.simple_inference(img_proc)
         fake_img = postprocess_image(fake_img)
         merged = np.concatenate((img, fake_img[..., ::-1]), axis=1)
 

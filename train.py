@@ -11,6 +11,7 @@ from collections import OrderedDict
 from subprocess import call
 import math
 from tqdm import tqdm
+from torch.cuda.amp import GradScaler
 
 def lcm(a,b): return abs(a * b)/math.gcd(a,b) if a and b else 0
 
@@ -41,8 +42,8 @@ def run_inference(model, epoch, opt):
         img_proc = preprocess_image(img, device=opt.device)
         if opt.fp16:
             img_proc = img_proc.to(dtype=torch.float16)
-
-        fake_img = model.simple_inference(img_proc)
+        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
+            fake_img = model.simple_inference(img_proc)
         fake_img = postprocess_image(fake_img)
         merged = np.concatenate((img, fake_img[..., ::-1]), axis=1)
 
@@ -63,11 +64,11 @@ if opt.continue_train:
         start_epoch, epoch_iter = np.loadtxt(iter_path , delimiter=',', dtype=int)
     except:
         start_epoch, epoch_iter = 1, 0
-    print('Resuming from epoch %d at iteration %d' % (start_epoch, epoch_iter))        
-else:    
+    print('Resuming from epoch %d at iteration %d' % (start_epoch, epoch_iter))
+else:
     start_epoch, epoch_iter = 1, 0
 
-opt.print_freq = lcm(opt.print_freq, opt.batchSize)    
+opt.print_freq = lcm(opt.print_freq, opt.batchSize)
 if opt.debug:
     opt.display_freq = 1
     opt.print_freq = 1
@@ -82,10 +83,11 @@ print('#training images = %d' % dataset_size)
 
 model = create_model(opt)
 visualizer = Visualizer(opt)
-if opt.fp16:    
-    from apex import amp
-    model, [optimizer_G, optimizer_D] = amp.initialize(model.to('cuda'), [model.optimizer_G, model.optimizer_D], opt_level='O1')
+if opt.fp16:
+    #model, [optimizer_G, optimizer_D] = amp.initialize(model.to('cuda'), [model.optimizer_G, model.optimizer_D], opt_level='O1')
+    optimizer_G, optimizer_D = model.optimizer_G, model.optimizer_D
     model = torch.nn.DataParallel(model, device_ids=opt.gpu_ids)
+    grad_scaler = GradScaler()
 else:
     optimizer_G, optimizer_D = model.module.optimizer_G, model.module.optimizer_D
 
@@ -110,34 +112,38 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
         save_fake = total_steps % opt.display_freq == display_delta
 
         ############## Forward Pass ######################
-        losses, generated = model(Variable(data['label']), Variable(data['inst']),
-            Variable(data['image']), Variable(data['feat']), infer=save_fake)
+        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
+            losses, generated = model(Variable(data['label']), Variable(data['inst']),
+                Variable(data['image']), Variable(data['feat']), infer=save_fake)
 
-        # sum per device losses
-        losses = [ torch.mean(x) if not isinstance(x, int) else x for x in losses ]
-        loss_dict = dict(zip(model.module.loss_names, losses))
+            # sum per device losses
+            losses = [ torch.mean(x) if not isinstance(x, int) else x for x in losses ]
+            loss_dict = dict(zip(model.module.loss_names, losses))
 
-        # calculate final loss scalar
-        loss_D = (loss_dict['D_fake'] + loss_dict['D_real']) * 0.5
-        loss_G = loss_dict['G_GAN'] + loss_dict.get('G_GAN_Feat',0) + loss_dict.get('G_VGG',0) + \
-                 loss_dict.get('G_color_pres', 0.0) + loss_dict.get('G_color_stats', 0.0)
+            # calculate final loss scalar
+            loss_D = (loss_dict['D_fake'] + loss_dict['D_real']) * 0.5
+            loss_G = loss_dict['G_GAN'] + loss_dict.get('G_GAN_Feat',0) + loss_dict.get('G_VGG',0) + \
+                     loss_dict.get('G_color_pres', 0.0) + loss_dict.get('G_color_stats', 0.0)
 
         ############### Backward Pass ####################
         # update generator weights
         optimizer_G.zero_grad()
-        if opt.fp16:                                
-            with amp.scale_loss(loss_G, optimizer_G) as scaled_loss: scaled_loss.backward()                
+        if opt.fp16:
+            grad_scaler.scale(loss_G).backward()
+            #with amp.scale_loss(loss_G, optimizer_G) as scaled_loss: scaled_loss.backward()
         else:
-            loss_G.backward()          
-        optimizer_G.step()
+            loss_G.backward()
+        grad_scaler.step(optimizer_G)
 
         # update discriminator weights
         optimizer_D.zero_grad()
-        if opt.fp16:                                
-            with amp.scale_loss(loss_D, optimizer_D) as scaled_loss: scaled_loss.backward()                
+        if opt.fp16:
+            grad_scaler.scale(loss_D).backward()
+            #with amp.scale_loss(loss_D, optimizer_D) as scaled_loss: scaled_loss.backward()
         else:
-            loss_D.backward()        
-        optimizer_D.step()        
+            loss_D.backward()
+        grad_scaler.step(optimizer_D)
+        grad_scaler.update()
 
         ############## Display results and errors ##########
         ### print out errors

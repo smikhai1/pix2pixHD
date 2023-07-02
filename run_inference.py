@@ -27,6 +27,7 @@ def parse_args():
     parser.add_argument('--n_blocks_local', type=int, default=3)
     parser.add_argument('--norm', type=str, default='layer')
     parser.add_argument('--up_block_type', type=str, default='up_conv')
+    parser.add_argument('--predict_offset', action='store_true', default=False)
 
     args = parser.parse_args()
 
@@ -38,7 +39,8 @@ def inference(opt):
     model = GlobalGenerator(input_nc=3, output_nc=3, ngf=opt.ngf, netG=opt.netG,
                             n_downsample_global=opt.n_downsample_global, n_blocks_global=opt.n_blocks_global,
                             n_local_enhancers=opt.n_local_enhancers, n_blocks_local=opt.n_blocks_local,
-                            norm=opt.norm, device=opt.device, up_block_type=opt.up_block_type)
+                            norm=opt.norm, device=opt.device, up_block_type=opt.up_block_type,
+                            predict_offset=opt.predict_offset)
     model.load_ckpt(opt.ckpt_path)
 
     # making dir for the results

@@ -350,11 +350,12 @@ class InferenceModel(Pix2PixHDModel):
 class GlobalGenerator(nn.Module):
     def __init__(self, input_nc=3, output_nc=3, ngf=64, netG='global', n_downsample_global=4,
                  n_blocks_global=9, n_local_enhancers=1, n_blocks_local=3, norm='instance',
-                 device='cuda', up_block_type='conv_transpose'):
+                 device='cuda', up_block_type='conv_transpose', predict_offset=False):
         super().__init__()
         model = networks.define_G(input_nc, output_nc, ngf, netG, n_downsample_global,
                                   n_blocks_global, n_local_enhancers,
-                                  n_blocks_local, norm, up_block_type=up_block_type)
+                                  n_blocks_local, norm, up_block_type=up_block_type,
+                                  predict_offset=predict_offset)
         model = model.eval().to(device=device)
         self.device = device
         self.model = model

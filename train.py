@@ -36,8 +36,8 @@ def run_inference(model, epoch, opt):
     os.makedirs(grids_dir, exist_ok=True)
 
     grid = []
-    # for img_name in tqdm(sorted(os.listdir(opt.test_data_dir), key=lambda x: int(x.split('.')[0]))): -- use to preserve previous order
-    for img_name in tqdm(sorted(os.listdir(opt.test_data_dir))):
+    # img_name in tqdm(sorted(os.listdir(opt.test_data_dir))) -- use to preserve previous order
+    for img_name in tqdm(sorted(os.listdir(opt.test_data_dir), key=lambda x: int(x.split('.')[0]))):
         if img_name.startswith('.'):
             continue
         img_path = os.path.join(opt.test_data_dir, img_name)

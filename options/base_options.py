@@ -50,6 +50,7 @@ class BaseOptions():
         self.parser.add_argument('--n_local_enhancers', type=int, default=1, help='number of local enhancers to use')        
         self.parser.add_argument('--niter_fix_global', type=int, default=0, help='number of epochs that we only train the outmost local enhancer')        
         self.parser.add_argument('--up_block_type', type=str, default='conv_transpose', help='Type of the upsample block in G decoder [conv_transpose, up_conv]')
+        self.parser.add_argument('--predict_offset', action='store_true', default=False, help='Make the generator to predict offset to the input image')
 
         # for instance-wise features
         self.parser.add_argument('--no_instance', action='store_true', help='if specified, do *not* add instance map as input')        

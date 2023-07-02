@@ -31,11 +31,11 @@ def get_norm_layer(norm_type='instance'):
     return norm_layer
 
 def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1, 
-             n_blocks_local=3, norm='instance', gpu_ids=[], up_block_type='conv_transpose'):
+             n_blocks_local=3, norm='instance', gpu_ids=[], up_block_type='conv_transpose', predict_offset=False):
     norm_layer = get_norm_layer(norm_type=norm)     
     if netG == 'global':    
         netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, norm_layer,
-                               up_block_type=up_block_type)
+                               up_block_type=up_block_type, predict_offset=predict_offset)
     elif netG == 'local':        
         netG = LocalEnhancer(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, 
                                   n_local_enhancers, n_blocks_local, norm_layer)
@@ -193,11 +193,14 @@ class LocalEnhancer(nn.Module):
             output_prev = model_upsample(model_downsample(input_i) + output_prev)
         return output_prev
 
+
 class GlobalGenerator(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=nn.BatchNorm2d,
-                 padding_type='reflect', up_block_type='conv_transpose'):
+                 padding_type='reflect', up_block_type='conv_transpose', predict_offset=False):
         assert(n_blocks >= 0)
-        super(GlobalGenerator, self).__init__()        
+        super(GlobalGenerator, self).__init__()
+        self.predict_offset = predict_offset
+
         activation = nn.LeakyReLU(negative_slope=0.2, inplace=True) #nn.ReLU(True)
 
         model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0), norm_layer(ngf), activation]
@@ -219,12 +222,18 @@ class GlobalGenerator(nn.Module):
             out_channels = int(ngf * mult / 2)
             model += [UpsampleBlock(up_block_type, in_channels, out_channels, norm_layer(out_channels), activation)]
 
-        model += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
+        last_block = [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
+        if not predict_offset:
+            last_block.append(nn.Tanh())
+        model += last_block
         self.model = nn.Sequential(*model)
-            
+
     def forward(self, input):
         out = self.model(input)
-        return input + out
+        if self.predict_offset:
+            return input + out
+        else:
+            return out
         
 # Define a resnet block
 class ResnetBlock(nn.Module):

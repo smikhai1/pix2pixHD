@@ -29,11 +29,14 @@ def run_inference(model, epoch, opt):
     save_dir = os.path.join(opt.results_dir, f'{epoch:0>5}')
     imgs_result_dir = os.path.join(save_dir, 'imgs')
     imgs_src_result_dir = os.path.join(save_dir, 'src+res')
+    grids_dir = os.path.join(opt.results_dir, 'grids')
 
     os.makedirs(imgs_result_dir, exist_ok=True)
     os.makedirs(imgs_src_result_dir, exist_ok=True)
+    os.makedirs(grids_dir, exist_ok=True)
 
     grid = []
+    # for img_name in tqdm(sorted(os.listdir(opt.test_data_dir), key=lambda x: int(x.split('.')[0]))): -- use to preserve previous order
     for img_name in tqdm(sorted(os.listdir(opt.test_data_dir))):
         if img_name.startswith('.'):
             continue
@@ -54,7 +57,7 @@ def run_inference(model, epoch, opt):
 
     grid = create_images_grid(grid, rows=opt.num_rows_in_grid)
     grid = cv2.cvtColor(grid, cv2.COLOR_RGB2BGR)
-    cv2.imwrite(osp.join(save_dir, f'grid-{epoch:>05}.jpg'), grid)
+    cv2.imwrite(osp.join(grids_dir, f'grid-{epoch:>05}.jpg'), grid)
 
 
 opt = TrainOptions().parse()
@@ -64,11 +67,11 @@ if opt.continue_train:
         start_epoch, epoch_iter = np.loadtxt(iter_path , delimiter=',', dtype=int)
     except:
         start_epoch, epoch_iter = 1, 0
-    print('Resuming from epoch %d at iteration %d' % (start_epoch, epoch_iter))        
-else:    
+    print('Resuming from epoch %d at iteration %d' % (start_epoch, epoch_iter))
+else:
     start_epoch, epoch_iter = 1, 0
 
-opt.print_freq = lcm(opt.print_freq, opt.batchSize)    
+opt.print_freq = lcm(opt.print_freq, opt.batchSize)
 if opt.debug:
     opt.display_freq = 1
     opt.print_freq = 1
@@ -83,11 +86,11 @@ print('#training images = %d' % dataset_size)
 
 model = create_model(opt)
 visualizer = Visualizer(opt)
+grad_scaler = GradScaler(enabled=opt.fp16)
+
 if opt.fp16:
-    #model, [optimizer_G, optimizer_D] = amp.initialize(model.to('cuda'), [model.optimizer_G, model.optimizer_D], opt_level='O1')
     optimizer_G, optimizer_D = model.optimizer_G, model.optimizer_D
     model = torch.nn.DataParallel(model, device_ids=opt.gpu_ids)
-    grad_scaler = GradScaler()
 else:
     optimizer_G, optimizer_D = model.module.optimizer_G, model.module.optimizer_D
 
@@ -130,18 +133,16 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
         optimizer_G.zero_grad()
         if opt.fp16:
             grad_scaler.scale(loss_G).backward()
-            #with amp.scale_loss(loss_G, optimizer_G) as scaled_loss: scaled_loss.backward()
         else:
-            loss_G.backward()          
+            loss_G.backward()
         grad_scaler.step(optimizer_G)
 
         # update discriminator weights
         optimizer_D.zero_grad()
         if opt.fp16:
             grad_scaler.scale(loss_D).backward()
-            #with amp.scale_loss(loss_D, optimizer_D) as scaled_loss: scaled_loss.backward()
         else:
-            loss_D.backward()        
+            loss_D.backward()
         grad_scaler.step(optimizer_D)
         grad_scaler.update()
 

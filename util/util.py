@@ -77,7 +77,7 @@ def postprocess_image(img):
     :return:
     """
     img = tensor2numpy(img.squeeze())
-    img = convert_range(img, drange_in=(-1, 1), drange_out=(0, 255))
+    img = convert_range(img, drange_in=(-1, 1), drange_out=(0, 255)).clip(0.0, 255.0)
 
     return img
 

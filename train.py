@@ -41,7 +41,12 @@ def run_inference(model, epoch, opt):
         if img_name.startswith('.'):
             continue
         img_path = os.path.join(opt.test_data_dir, img_name)
-        img = load_image(img_path, to_rgb=False, size=opt.img_size)
+        try:
+            img = load_image(img_path, to_rgb=False, size=opt.img_size)
+        except Exception as ex:
+            print(f'During loading image following exception was caught: {str(ex)}')
+            continue
+
         img_proc = preprocess_image(img, device=opt.device)
         if opt.fp16:
             img_proc = img_proc.to(dtype=torch.float16)
@@ -105,7 +110,16 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
     epoch_start_time = time.time()
     if epoch != start_epoch:
         epoch_iter = epoch_iter % dataset_size
-    for i, data in enumerate(dataset, start=epoch_iter):
+
+    dataset_iter = iter(dataset)
+    while True:
+        try:
+            data = next(dataset_iter)
+        except StopIteration:
+            break
+        except OSError as ex:
+            print(f'Some problems occurred when reading data from disk: {str(ex)}\n Continue training...')
+
         model.train()
         if total_steps % opt.print_freq == print_delta:
             iter_start_time = time.time()

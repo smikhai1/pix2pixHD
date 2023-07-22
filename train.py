@@ -17,6 +17,7 @@ def lcm(a,b): return abs(a * b)/math.gcd(a,b) if a and b else 0
 
 from options.train_options import TrainOptions
 from data.data_loader import CreateDataLoader
+from data.aligned_dataset import load_mask
 from models.models import create_model
 import util.util as util
 from util.visualizer import Visualizer
@@ -48,6 +49,13 @@ def run_inference(model, epoch, opt):
             continue
 
         img_proc = preprocess_image(img, device=opt.device)
+        if opt.use_mask:
+            mask_path = osp.join(opt.test_masks_dir, osp.splitext(img_name)[0] + '.png')
+            size = img_proc.shape[-1]
+            mask = load_mask(mask_path, size)[None]
+            mask = mask.to(device=opt.device)
+            img_proc = torch.cat((img_proc, mask), dim=1)
+
         if opt.fp16:
             img_proc = img_proc.to(dtype=torch.float16)
         with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
@@ -130,9 +138,12 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
         save_fake = total_steps % opt.display_freq == display_delta
 
         ############## Forward Pass ######################
+        mask = data['mask'] if opt.use_mask else None
+
         with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
             losses, generated = model(Variable(data['label']), Variable(data['inst']),
-                Variable(data['image']), Variable(data['feat']), infer=save_fake)
+                                      Variable(data['image']), Variable(data['feat']),
+                                      infer=save_fake, mask=mask)
 
             # sum per device losses
             losses = [ torch.mean(x) if not isinstance(x, int) else x for x in losses ]

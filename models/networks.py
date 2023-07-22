@@ -227,11 +227,22 @@ class GlobalGenerator(nn.Module):
             last_block.append(nn.Tanh())
         model += last_block
         self.model = nn.Sequential(*model)
+        self.input_nc = input_nc
+        self.output_nc = output_nc
 
     def forward(self, input):
         out = self.model(input)
         if self.predict_offset:
-            return input + out
+            if self.input_nc == self.output_nc:
+                return input + out
+            elif self.input_nc > self.output_nc:
+                d = self.input_nc - self.output_nc
+                return input[:, :-d] + out
+            else:
+                d = self.output_nc - self.input_nc
+                b, _, h, w = input.shape
+                zeros = torch.zeros(b, d, h, w, dtype=input.dtype, device=input.device)
+                return torch.cat((input, zeros), dim=1) + out
         else:
             return out
         

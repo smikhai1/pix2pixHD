@@ -1,7 +1,13 @@
 import os.path
+
+import torch
+
 from data.base_dataset import BaseDataset, get_params, get_transform, normalize
 from data.image_folder import make_dataset
 from PIL import Image
+import cv2
+import numpy as np
+
 
 class AlignedDataset(BaseDataset):
     def initialize(self, opt):
@@ -30,8 +36,14 @@ class AlignedDataset(BaseDataset):
             print('----------- loading features from %s ----------' % self.dir_feat)
             self.feat_paths = sorted(make_dataset(self.dir_feat))
 
-        self.dataset_size = len(self.A_paths) 
-      
+        self.dataset_size = len(self.A_paths)
+
+        if opt.use_mask:
+            self.masks_paths = sorted(make_dataset(opt.train_masks_dir))
+            self.mask_size = opt.loadSize
+
+        self.use_mask = opt.use_mask
+
     def __getitem__(self, index):        
         ### input A (label maps)
         A_path = self.A_paths[index]              
@@ -62,11 +74,28 @@ class AlignedDataset(BaseDataset):
                 feat_path = self.feat_paths[index]            
                 feat = Image.open(feat_path).convert('RGB')
                 norm = normalize()
-                feat_tensor = norm(transform_A(feat))                            
+                feat_tensor = norm(transform_A(feat))
 
-        input_dict = {'label': A_tensor, 'inst': inst_tensor, 'image': B_tensor, 
+        input_dict = {'label': A_tensor, 'inst': inst_tensor, 'image': B_tensor,
                       'feat': feat_tensor, 'path': A_path}
 
+        ### load mask
+        if self.use_mask:
+            mask_path = self.masks_paths[index]
+            mask, mask_arr = load_mask(mask_path, self.mask_size, return_mask_arr=True)
+            input_dict['mask'] = mask
+
+        if False:
+            debug_dir = './debug_imgs'
+            os.makedirs(debug_dir, exist_ok=True)
+            mask_arr = (mask_arr * 255).astype(np.uint8)
+            mask_arr = np.tile(mask_arr, reps=(1, 1, 3))
+            concat = [np.array(A), np.array(B), mask_arr]
+            for i in range(len(concat)):
+                if concat[i].shape[0] != self.mask_size or concat[i].shape[1] != self.mask_size:
+                    concat[i] = cv2.resize(concat[i], (self.mask_size, self.mask_size))
+            concat = np.concatenate(concat, axis=1)
+            cv2.imwrite(os.path.join(debug_dir, f'{index}.jpg'), cv2.cvtColor(concat, cv2.COLOR_RGB2BGR))
         return input_dict
 
     def __len__(self):
@@ -74,3 +103,24 @@ class AlignedDataset(BaseDataset):
 
     def name(self):
         return 'AlignedDataset'
+
+
+def load_mask(mask_fp, size, class_label=10, return_mask_arr=False):
+    mask = cv2.imread(mask_fp)
+    if mask.ndim == 2:
+        mask = mask[..., None]  # make it H x W x 1
+    elif mask.shape[-1] > 1:
+        mask = mask[..., [0]]
+
+    mask = (mask == class_label).astype(np.float32)
+    mask = cv2.GaussianBlur(mask, (0, 0), 5)
+    if mask.shape[0] != size or mask.shape[1] != size:
+        mask = cv2.resize(mask, (size, size), interpolation=cv2.INTER_LINEAR)
+
+    if mask.ndim == 2:  # opencv can reduce channel dimension
+        mask = mask[..., None]
+
+    mask_tensor = torch.from_numpy(mask).permute(2, 0, 1)
+    if return_mask_arr:
+        return mask_tensor, mask
+    return mask_tensor

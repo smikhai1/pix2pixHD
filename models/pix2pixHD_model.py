@@ -168,7 +168,7 @@ class Pix2PixHDModel(BaseModel):
         else:
             return self.netD.forward(input_concat)
 
-    def forward(self, label, inst, image, feat, infer=False):
+    def forward(self, label, inst, image, feat, infer=False, mask=None):
         # Encode Inputs
         input_label, inst_map, real_image, feat_map = self.encode_input(label, inst, image, feat)  
 
@@ -176,21 +176,29 @@ class Pix2PixHDModel(BaseModel):
         if self.use_features:
             if not self.opt.load_features:
                 feat_map = self.netE.forward(real_image, inst_map)                     
-            input_concat = torch.cat((input_label, feat_map), dim=1)                        
+            input_concat = torch.cat((input_label, feat_map), dim=1)
+        elif mask is not None:
+            input_concat = torch.cat((input_label, mask), dim=1)
+            real_concat = torch.cat((real_image, mask), dim=1)
         else:
             input_concat = input_label
+            real_concat = real_image
         fake_image = self.netG.forward(input_concat)
 
         # Fake Detection and Loss
-        pred_fake_pool = self.discriminate(input_label, fake_image, use_pool=True)
+        if mask is not None:
+            fake_concat = torch.cat((fake_image, mask), dim=1)
+        else:
+            fake_concat = fake_image
+        pred_fake_pool = self.discriminate(input_label, fake_concat, use_pool=True)
         loss_D_fake = self.criterionGAN(pred_fake_pool, False)        
 
         # Real Detection and Loss        
-        pred_real = self.discriminate(input_label, real_image)
+        pred_real = self.discriminate(input_label, real_concat)
         loss_D_real = self.criterionGAN(pred_real, True)
 
         # GAN loss (Fake Passability Loss)        
-        pred_fake = self.netD.forward(torch.cat((input_label, fake_image), dim=1))        
+        pred_fake = self.netD.forward(torch.cat((input_label, fake_concat), dim=1))
         loss_G_GAN = self.criterionGAN(pred_fake, True)               
         
         # GAN feature matching loss

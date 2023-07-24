@@ -61,7 +61,7 @@ def run_inference(model, epoch, opt):
 
             grid.append(fake_img.astype(np.uint8))
         else:
-            grid.append(img.astype(np.uint8))
+            grid.append(cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2RGB))
 
     grid = create_images_grid(grid, rows=opt.num_rows_in_grid)
     grid = cv2.cvtColor(grid, cv2.COLOR_RGB2BGR)
@@ -210,8 +210,14 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
     if epoch > opt.niter:
         model.module.update_learning_rate()
 
+    if opt.inference_epoch_freq > 0 and epoch == 1:
+        print('Inferencing originals grid')
+        model.eval()
+        run_inference(model.module, 0, opt)
+        model.train()
+
     ### run inference on the specified directory
-    if epoch == 0 or (opt.inference_epoch_freq > 0 and epoch % opt.inference_epoch_freq == 0):
+    if opt.inference_epoch_freq > 0 and epoch % opt.inference_epoch_freq == 0:
         print('Inferencing at epoch ', epoch)
         model.eval()
         run_inference(model.module, epoch, opt)

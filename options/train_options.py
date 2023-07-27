@@ -44,5 +44,6 @@ class TrainOptions(BaseOptions):
                                  help='Weight of the color preservation loss')
         self.parser.add_argument('--color_stats_loss_w', type=float, default=0.0,
                                  help='Weight of the color statistics preservation loss')
+        self.parser.add_argument('--not_save_concats', action='store_false', help='Whether not to save concats')
 
         self.isTrain = True

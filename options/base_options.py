@@ -66,6 +66,11 @@ class BaseOptions():
         self.parser.add_argument('--use_mask', action='store_true')
         self.parser.add_argument('--train_masks_dir', type=str, default=None)
         self.parser.add_argument('--test_masks_dir', type=str, default=None)
+        self.parser.add_argument('--class_label', type=int, default=10,
+                                 help='Label of face part to include in the binary mask. '
+                                      '1: face skin, 2: nose, 3: eyeglasses, 4: eyes, 5: eyebrows,'
+                                      '6: ears, 7: teeth, 8: top lip, 9: bottom lip, 10: hair, '
+                                      '11: hat, 12: earrings')
 
         self.initialized = True
 

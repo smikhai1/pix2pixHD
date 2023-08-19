@@ -27,14 +27,15 @@ from util.misc import save_image, load_image, create_images_grid
 
 @torch.no_grad()
 def run_inference(model, epoch, opt):
-    save_dir = os.path.join(opt.results_dir, f'{epoch:0>5}')
-    imgs_result_dir = os.path.join(save_dir, 'imgs')
-    imgs_src_result_dir = os.path.join(save_dir, 'src+res')
     grids_dir = os.path.join(opt.results_dir, 'grids')
-
-    os.makedirs(imgs_result_dir, exist_ok=True)
-    os.makedirs(imgs_src_result_dir, exist_ok=True)
     os.makedirs(grids_dir, exist_ok=True)
+
+    if not opt.not_save_concats:
+        save_dir = os.path.join(opt.results_dir, f'{epoch:0>5}')
+        imgs_result_dir = os.path.join(save_dir, 'imgs')
+        imgs_src_result_dir = os.path.join(save_dir, 'src+res')
+        os.makedirs(imgs_result_dir, exist_ok=True)
+        os.makedirs(imgs_src_result_dir, exist_ok=True)
 
     grid = []
     # img_name in tqdm(sorted(os.listdir(opt.test_data_dir))) -- use to preserve previous order
@@ -48,29 +49,33 @@ def run_inference(model, epoch, opt):
             print(f'During loading image following exception was caught: {str(ex)}')
             continue
 
-        img_proc = preprocess_image(img, device=opt.device)
-        if opt.use_mask:
-            mask_path = osp.join(opt.test_masks_dir, osp.splitext(img_name)[0] + '.png')
-            size = img_proc.shape[-1]
-            mask = load_mask(mask_path, size)[None]
-            mask = mask.to(device=opt.device)
-            img_proc = torch.cat((img_proc, mask), dim=1)
+        if epoch > 0:
+            img_proc = preprocess_image(img, device=opt.device)
+            if opt.use_mask:
+                mask_path = osp.join(opt.test_masks_dir, osp.splitext(img_name)[0] + '.png')
+                size = img_proc.shape[-1]
+                mask = load_mask(mask_path, size)[None]
+                mask = mask.to(device=opt.device)
+                img_proc = torch.cat((img_proc, mask), dim=1)
 
-        if opt.fp16:
-            img_proc = img_proc.to(dtype=torch.float16)
-        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
-            fake_img = model.simple_inference(img_proc)
-        fake_img = postprocess_image(fake_img)
-        merged = np.concatenate((img, fake_img[..., ::-1]), axis=1)
+            if opt.fp16:
+                img_proc = img_proc.to(dtype=torch.float16)
+            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
+                fake_img = model.simple_inference(img_proc)
+            fake_img = postprocess_image(fake_img)
 
-        save_image(os.path.join(imgs_result_dir, img_name), fake_img, to_bgr=True)
-        save_image(os.path.join(imgs_src_result_dir, img_name), merged, to_bgr=False)
-
-        grid.append(fake_img.astype(np.uint8))
+            if not opt.not_save_concats:
+                merged = np.concatenate((img, fake_img[..., ::-1]), axis=1)
+                save_image(os.path.join(imgs_result_dir, img_name), fake_img, to_bgr=True)
+                save_image(os.path.join(imgs_src_result_dir, img_name), merged, to_bgr=False)
+            grid.append(fake_img.astype(np.uint8))
+        else:
+            grid.append(cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2RGB))
 
     grid = create_images_grid(grid, rows=opt.num_rows_in_grid)
     grid = cv2.cvtColor(grid, cv2.COLOR_RGB2BGR)
-    cv2.imwrite(osp.join(grids_dir, f'grid-{epoch:>05}.jpg'), grid)
+    grid_name = f'grid-{epoch:>05}.jpg' if epoch > 0 else 'originals.jpg'
+    cv2.imwrite(osp.join(grids_dir, grid_name), grid)
 
 
 opt = TrainOptions().parse()
@@ -216,6 +221,12 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
     ### linearly decay learning rate after certain iterations
     if epoch > opt.niter:
         model.module.update_learning_rate()
+
+    if opt.inference_epoch_freq > 0 and epoch == 1:
+        print('Inferencing originals grid')
+        model.eval()
+        run_inference(model.module, 0, opt)
+        model.train()
 
     ### run inference on the specified directory
     if opt.inference_epoch_freq > 0 and epoch % opt.inference_epoch_freq == 0:

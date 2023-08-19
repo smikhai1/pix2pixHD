@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 import torch
 import torch.nn as nn
@@ -5,8 +6,10 @@ import os
 from torch.autograd import Variable
 from util.image_pool import ImagePool
 from util.color_loss import ColorMatchingLoss, StatsLoss
+from util.util import preprocess_image, postprocess_image
 from .base_model import BaseModel
 from . import networks
+
 
 class Pix2PixHDModel(BaseModel):
     def name(self):
@@ -376,3 +379,28 @@ class GlobalGenerator(nn.Module):
     def forward(self, img):
         fake_image = self.model(img)
         return fake_image
+
+
+class Pix2pixHdImproved:
+    def __init__(self, input_nc=3, output_nc=3, ngf=64, netG='global', n_downsample_global=4,
+                 n_blocks_global=9, n_local_enhancers=1, n_blocks_local=3, norm='instance',
+                 device='cuda', up_block_type='conv_transpose', predict_offset=False):
+        model = networks.define_G(input_nc, output_nc, ngf, netG, n_downsample_global,
+                                  n_blocks_global, n_local_enhancers,
+                                  n_blocks_local, norm, up_block_type=up_block_type,
+                                  predict_offset=predict_offset)
+        model = model.eval().to(device=device)
+        self.device = device
+        self.model = model
+
+    def load_ckpt(self, ckpt_path):
+        state_dict = torch.load(ckpt_path, map_location=self.device)
+        self.model.load_state_dict(state_dict, strict=True)
+
+    @torch.no_grad()
+    def inference(self, img):
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        img_t = preprocess_image(img, device=self.device)
+        pred_img = self.model(img_t)
+        pred_img = postprocess_image(pred_img).astype(np.uint8)
+        return pred_img

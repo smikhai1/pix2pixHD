@@ -111,6 +111,20 @@ display_delta = total_steps % opt.display_freq
 print_delta = total_steps % opt.print_freq
 save_delta = total_steps % opt.save_latest_freq
 
+wandb_available = False
+if opt.use_wandb:
+    try:
+        import wandb
+        wandb.login()
+        wandb.init(
+            project="pix2pixHD",
+            config=vars(opt),
+            name=opt.name
+        )
+        wandb_available = True
+    except ModuleNotFoundError:
+        pass
+
 for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
     epoch_start_time = time.time()
     if epoch != start_epoch:
@@ -173,7 +187,10 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
             t = (time.time() - iter_start_time) / opt.print_freq
             visualizer.print_current_errors(epoch, epoch_iter, errors, t)
             visualizer.plot_current_errors(errors, total_steps)
-            #call(["nvidia-smi", "--format=csv", "--query-gpu=memory.used,memory.free"]) 
+            #call(["nvidia-smi", "--format=csv", "--query-gpu=memory.used,memory.free"])
+            if wandb_available:
+                wandb.log({'G_total_loss': loss_G.item(), 'D_total_loss': loss_D.item(),
+                           'epoch': epoch, 'iteration': total_steps, **loss_dict}, step=total_steps)
 
         ### display output images
         if save_fake:

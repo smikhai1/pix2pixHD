@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import os
 from torch.autograd import Variable
+import torch.nn.functional as F
 from util.image_pool import ImagePool
 from util.color_loss import ColorMatchingLoss, StatsLoss
 from util.util import preprocess_image, postprocess_image
@@ -40,12 +41,13 @@ class Pix2PixHDModel(BaseModel):
         self.netG = networks.define_G(netG_input_nc, opt.output_nc, opt.ngf, opt.netG, 
                                       opt.n_downsample_global, opt.n_blocks_global, opt.n_local_enhancers, 
                                       opt.n_blocks_local, opt.norm, gpu_ids=self.gpu_ids,
-                                      up_block_type=opt.up_block_type, predict_offset=opt.predict_offset)
+                                      up_block_type=opt.up_block_type, predict_offset=opt.predict_offset,
+                                      last_conv_zeros=opt.last_conv_zeros)
 
         # Discriminator network
         if self.isTrain:
             use_sigmoid = opt.no_lsgan
-            netD_input_nc = input_nc + opt.output_nc
+            netD_input_nc = input_nc + opt.output_nc + 1  # workaround as the G predicts the warping field
             if not opt.no_instance:
                 netD_input_nc += 1
             if opt.sn:
@@ -180,20 +182,19 @@ class Pix2PixHDModel(BaseModel):
             if not self.opt.load_features:
                 feat_map = self.netE.forward(real_image, inst_map)                     
             input_concat = torch.cat((input_label, feat_map), dim=1)
-        elif mask is not None:
-            input_concat = torch.cat((input_label, mask), dim=1)
-            real_concat = torch.cat((real_image, mask), dim=1)
         else:
             input_concat = input_label
             real_concat = real_image
-        fake_image = self.netG.forward(input_concat)
+
+        warp_field = self.netG.forward(input_concat)
+        warp_field = warp_field.permute(0, 2, 3, 1)  # to [B, H, W, 2]
+
+        # we obtain the predicted image by warping the input
+        #   with the predicted warp field
+        fake_image = F.grid_sample(input_label, warp_field, mode='bilinear', align_corners=True)
 
         # Fake Detection and Loss
-        if mask is not None:
-            fake_concat = torch.cat((fake_image, mask), dim=1)
-        else:
-            fake_concat = fake_image
-        pred_fake_pool = self.discriminate(input_label, fake_concat, use_pool=True)
+        pred_fake_pool = self.discriminate(input_label, fake_image, use_pool=True)
         loss_D_fake = self.criterionGAN(pred_fake_pool, False)        
 
         # Real Detection and Loss        
@@ -201,7 +202,7 @@ class Pix2PixHDModel(BaseModel):
         loss_D_real = self.criterionGAN(pred_real, True)
 
         # GAN loss (Fake Passability Loss)        
-        pred_fake = self.netD.forward(torch.cat((input_label, fake_concat), dim=1))
+        pred_fake = self.netD.forward(torch.cat((input_label, fake_image), dim=1))
         loss_G_GAN = self.criterionGAN(pred_fake, True)               
         
         # GAN feature matching loss

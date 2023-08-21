@@ -12,12 +12,13 @@ from subprocess import call
 import math
 from tqdm import tqdm
 from torch.cuda.amp import GradScaler
+import torch.nn.functional as F
 
 def lcm(a,b): return abs(a * b)/math.gcd(a,b) if a and b else 0
 
 from options.train_options import TrainOptions
 from data.data_loader import CreateDataLoader
-from data.aligned_dataset import load_mask
+from data.aligned_dataset import load_mask, get_bbox_from_mask, make_crop
 from models.models import create_model
 import util.util as util
 from util.visualizer import Visualizer
@@ -49,19 +50,30 @@ def run_inference(model, epoch, opt):
             print(f'During loading image following exception was caught: {str(ex)}')
             continue
 
+        if opt.use_mask:
+            mask_path = osp.join(opt.test_masks_dir, osp.splitext(img_name)[0] + '.png')
+            size = img.shape[0]
+            mask, mask_arr = load_mask(mask_path, size, class_label=opt.class_label, return_mask_arr=True)
+            bbox = get_bbox_from_mask(mask_arr, size // 4)
+
+            mask_crop = make_crop(mask_arr, bbox)
+            img_crop = make_crop(img, bbox)
+            if img_crop.shape[0] == 0 or img_crop.shape[1] == 0:
+                continue
+
         if epoch > 0:
             img_proc = preprocess_image(img, device=opt.device)
-            if opt.use_mask:
-                mask_path = osp.join(opt.test_masks_dir, osp.splitext(img_name)[0] + '.png')
-                size = img_proc.shape[-1]
-                mask = load_mask(mask_path, size)[None]
-                mask = mask.to(device=opt.device)
-                img_proc = torch.cat((img_proc, mask), dim=1)
+            img_proc = make_crop(img_proc, bbox)
 
             if opt.fp16:
                 img_proc = img_proc.to(dtype=torch.float16)
             with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
-                fake_img = model.simple_inference(img_proc)
+                warp_field = model.simple_inference(img_proc)
+            warp_field = warp_field.permute(0, 2, 3, 1)  # to [B, H, W, 2]
+
+            # we obtain the predicted image by warping the input
+            #   with the predicted warp field
+            fake_img = F.grid_sample(img_proc, warp_field, mode='bilinear', align_corners=True)
             fake_img = postprocess_image(fake_img)
 
             if not opt.not_save_concats:
@@ -70,7 +82,7 @@ def run_inference(model, epoch, opt):
                 save_image(os.path.join(imgs_src_result_dir, img_name), merged, to_bgr=False)
             grid.append(fake_img.astype(np.uint8))
         else:
-            grid.append(cv2.cvtColor(img.astype(np.uint8), cv2.COLOR_BGR2RGB))
+            grid.append(cv2.cvtColor(img_crop.astype(np.uint8), cv2.COLOR_BGR2RGB))
 
     grid = create_images_grid(grid, rows=opt.num_rows_in_grid)
     grid = cv2.cvtColor(grid, cv2.COLOR_RGB2BGR)
@@ -157,11 +169,11 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
         save_fake = total_steps % opt.display_freq == display_delta
 
         ############## Forward Pass ######################
-        mask = data['mask'] if opt.use_mask else None
+        mask = data['mask_crop'] if opt.use_mask else None
 
         with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
-            losses, generated = model(Variable(data['label']), Variable(data['inst']),
-                                      Variable(data['image']), Variable(data['feat']),
+            losses, generated = model(Variable(data['label_crop']), Variable(data['inst']),
+                                      Variable(data['image_crop']), Variable(data['feat']),
                                       infer=save_fake, mask=mask)
 
             # sum per device losses
@@ -205,9 +217,9 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
 
         ### display output images
         if save_fake:
-            visuals = OrderedDict([('input_label', util.tensor2label(data['label'][0], opt.label_nc)),
+            visuals = OrderedDict([('input_label', util.tensor2label(data['label_crop'][0], opt.label_nc)),
                                    ('synthesized_image', util.tensor2im(generated.data[0])),
-                                   ('real_image', util.tensor2im(data['image'][0]))])
+                                   ('real_image', util.tensor2im(data['image_crop'][0]))])
             visualizer.display_current_results(visuals, epoch, total_steps)
 
         ### save latest model

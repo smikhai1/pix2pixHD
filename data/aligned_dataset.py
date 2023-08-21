@@ -87,12 +87,25 @@ class AlignedDataset(BaseDataset):
                                        return_mask_arr=True)
             input_dict['mask'] = mask
 
+            # get square bbox around the mask region
+            bbox = get_bbox_from_mask(mask_arr, size=self.opt.loadSize // 4)
+            A_tensor_crop = make_crop(A_tensor, bbox)
+            B_tensor_crop = make_crop(B_tensor, bbox)
+            mask_crop = make_crop(mask, bbox)
+
+            input_dict['label_crop'] = A_tensor_crop
+            input_dict['image_crop'] = B_tensor_crop
+            input_dict['mask_crop'] = mask_crop
+
         if False:
             debug_dir = './debug_imgs'
             os.makedirs(debug_dir, exist_ok=True)
             mask_arr = (mask_arr * 255).astype(np.uint8)
             mask_arr = np.tile(mask_arr, reps=(1, 1, 3))
-            concat = [np.array(A), np.array(B), mask_arr]
+            concat = [make_crop(np.array(A.resize((self.opt.loadSize, self.opt.loadSize))), bbox),
+                      make_crop(np.array(B.resize((self.opt.loadSize, self.opt.loadSize))), bbox),
+                      make_crop(mask_arr, bbox)
+                      ]
             for i in range(len(concat)):
                 if concat[i].shape[0] != self.mask_size or concat[i].shape[1] != self.mask_size:
                     concat[i] = cv2.resize(concat[i], (self.mask_size, self.mask_size))
@@ -126,3 +139,44 @@ def load_mask(mask_fp, size, class_label=10, return_mask_arr=False):
     if return_mask_arr:
         return mask_tensor, mask
     return mask_tensor
+
+
+def get_bbox_from_mask(mask, size):
+    # get coordinates of pixels inside the mask
+    ys, xs = np.where(mask.squeeze() > 0.5)
+    coords = np.stack((ys, xs), axis=-1)
+
+    # center of the mask == mean of mask pixesl coordintaes
+    center = np.mean(coords, axis=0).astype(np.int32)
+    yc, xc = center
+
+    y_top, x_left = yc - size // 2, xc - size // 2
+    y_bottom, x_right = yc + size // 2, xc + size // 2
+
+    return y_top, x_left, y_bottom, x_right
+
+
+def make_crop(input, bbox):
+    if isinstance(input, np.ndarray):
+        input_shape = input.shape[:2]
+        bbox = clip_bbox(bbox, input_shape)
+        y_top, x_left, y_bottom, x_right = bbox
+        crop = input[y_top:y_bottom, x_left:x_right]
+    elif isinstance(input, torch.Tensor):
+        input_shape = input.shape[-2:]
+        bbox = clip_bbox(bbox, input_shape)
+        y_top, x_left, y_bottom, x_right = bbox
+        crop = input[..., y_top:y_bottom, x_left:x_right]
+    else:
+        raise ValueError('Unsupported input type: ', type(input))
+    return crop
+
+
+def clip_bbox(bbox, shape):
+    h, w = shape
+    y_top, x_left, y_bottom, x_right = bbox
+
+    y_top, x_left = max(0, y_top), max(0, x_left)
+    y_bottom, x_right = min(h-1, y_bottom), min(w-1, x_right)
+
+    return y_top, x_left, y_bottom, x_right

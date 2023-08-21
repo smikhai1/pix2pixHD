@@ -47,4 +47,6 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--not_save_concats', action='store_true', default=False, help='Whether not to save concats')
         self.parser.add_argument('--use_wandb', action='store_true', default=False,
                                  help='Use WandB for loggin experiment')
+        self.parser.add_argument('--last_conv_zeros', action='store_true', default=False)
+
         self.isTrain = True

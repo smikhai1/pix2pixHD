@@ -31,11 +31,13 @@ def get_norm_layer(norm_type='instance'):
     return norm_layer
 
 def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1, 
-             n_blocks_local=3, norm='instance', gpu_ids=[], up_block_type='conv_transpose', predict_offset=False):
+             n_blocks_local=3, norm='instance', gpu_ids=[], up_block_type='conv_transpose', predict_offset=False,
+             last_conv_zeros=False):
     norm_layer = get_norm_layer(norm_type=norm)     
     if netG == 'global':    
         netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, norm_layer,
-                               up_block_type=up_block_type, predict_offset=predict_offset)
+                               up_block_type=up_block_type, predict_offset=predict_offset,
+                               last_conv_zeros=last_conv_zeros)
     elif netG == 'local':        
         netG = LocalEnhancer(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, 
                                   n_local_enhancers, n_blocks_local, norm_layer)
@@ -196,7 +198,7 @@ class LocalEnhancer(nn.Module):
 
 class GlobalGenerator(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=nn.BatchNorm2d,
-                 padding_type='reflect', up_block_type='conv_transpose', predict_offset=False):
+                 padding_type='reflect', up_block_type='conv_transpose', predict_offset=False, last_conv_zeros=False):
         assert(n_blocks >= 0)
         super(GlobalGenerator, self).__init__()
         self.predict_offset = predict_offset
@@ -223,7 +225,13 @@ class GlobalGenerator(nn.Module):
             model += [UpsampleBlock(up_block_type, in_channels, out_channels, norm_layer(out_channels), activation)]
 
         last_block = [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
-        if not predict_offset:
+        self.last_conv_zeros = last_conv_zeros
+        if last_conv_zeros:
+            with torch.no_grad():
+                last_block[-1].weight.zero_()
+                last_block[-1].bias.zero_()
+
+        if not predict_offset or not last_conv_zeros:
             last_block.append(nn.Tanh())
         model += last_block
         self.model = nn.Sequential(*model)
@@ -232,20 +240,23 @@ class GlobalGenerator(nn.Module):
 
     def forward(self, input):
         out = self.model(input)
-        if self.predict_offset:
-            if self.input_nc == self.output_nc:
-                return input + out
-            elif self.input_nc > self.output_nc:
-                d = self.input_nc - self.output_nc
-                return input[:, :-d] + out
-            else:
-                d = self.output_nc - self.input_nc
-                b, _, h, w = input.shape
-                zeros = torch.zeros(b, d, h, w, dtype=input.dtype, device=input.device)
-                return torch.cat((input, zeros), dim=1) + out
-        else:
-            return out
-        
+        if self.last_conv_zeros:
+            id_mapping = make_identity_mapping(out)
+            out = out + id_mapping
+
+        return out
+
+
+def make_identity_mapping(input):
+    h, w = input.shape[-2:]
+    yy, xx = torch.meshgrid(torch.arange(h), torch.arange(w))
+    mapping = torch.dstack((xx, yy))
+    mapping = mapping / torch.tensor([w-1, h-1])
+    mapping = mapping.permute(2, 0, 1)[None]
+    mapping = (mapping - 0.5) / 0.5
+    return mapping.to(dtype=input.dtype, device=input.device)
+
+
 # Define a resnet block
 class ResnetBlock(nn.Module):
     def __init__(self, dim, padding_type, norm_layer, activation=nn.ReLU(True), use_dropout=False):

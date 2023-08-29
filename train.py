@@ -156,6 +156,8 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
             data = next(dataset_iter)
         except StopIteration:
             break
+        except RuntimeError:
+            continue
         except OSError as ex:
             print(f'Some problems occurred when reading data from disk: {str(ex)}\n Continue training...')
 

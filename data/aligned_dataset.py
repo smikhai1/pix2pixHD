@@ -115,9 +115,8 @@ def load_mask(mask_fp, size, class_label=10, return_mask_arr=False):
         mask = mask[..., [0]]
 
     mask = (mask == class_label).astype(np.float32)
-    mask = cv2.GaussianBlur(mask, (0, 0), 5)
     if mask.shape[0] != size or mask.shape[1] != size:
-        mask = cv2.resize(mask, (size, size), interpolation=cv2.INTER_LINEAR)
+        mask = cv2.resize(mask, (size, size), interpolation=cv2.INTER_NEAREST)
 
     if mask.ndim == 2:  # opencv can reduce channel dimension
         mask = mask[..., None]

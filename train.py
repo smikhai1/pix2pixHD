@@ -51,7 +51,7 @@ def run_inference(model, epoch, opt):
 
         if epoch > 0:
             img_proc = preprocess_image(img, device=opt.device)
-            if opt.use_mask:
+            if opt.use_mask and False:
                 mask_path = osp.join(opt.test_masks_dir, osp.splitext(img_name)[0] + '.png')
                 size = img_proc.shape[-1]
                 mask = load_mask(mask_path, size)[None]
@@ -62,6 +62,7 @@ def run_inference(model, epoch, opt):
                 img_proc = img_proc.to(dtype=torch.float16)
             with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
                 fake_img = model.simple_inference(img_proc)
+                fake_img = fake_img[:, :-1]
             fake_img = postprocess_image(fake_img)
 
             if not opt.not_save_concats:
@@ -144,6 +145,8 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
             data = next(dataset_iter)
         except StopIteration:
             break
+        except RuntimeError:
+            continue
         except OSError as ex:
             print(f'Some problems occurred when reading data from disk: {str(ex)}\n Continue training...')
 
@@ -165,13 +168,14 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
                                       infer=save_fake, mask=mask)
 
             # sum per device losses
-            losses = [ torch.mean(x) if not isinstance(x, int) else x for x in losses ]
+            losses = [ torch.mean(x) if not isinstance(x, int) else x for x in losses]
             loss_dict = dict(zip(model.module.loss_names, losses))
 
             # calculate final loss scalar
             loss_D = (loss_dict['D_fake'] + loss_dict['D_real']) * 0.5
             loss_G = loss_dict['G_GAN'] + loss_dict.get('G_GAN_Feat',0) + loss_dict.get('G_VGG',0) + \
-                     loss_dict.get('G_color_pres', 0.0) + loss_dict.get('G_color_stats', 0.0)
+                     loss_dict.get('G_color_pres', 0.0) + loss_dict.get('G_color_stats', 0.0) + \
+                     loss_dict.get('G_mask_loss', 0.0)
 
         ############### Backward Pass ####################
         # update generator weights

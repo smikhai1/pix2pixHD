@@ -96,6 +96,10 @@ class Pix2PixHDModel(BaseModel):
                 self.color_stats_loss = StatsLoss(yuv_channels=(1, 2))
                 self.loss_names.append('G_color_stats')
 
+            if opt.segm_loss_w > 0.0:
+                self.segm_loss = nn.BCELoss()
+                self.loss_names.append('G_mask_loss')
+
             # initialize optimizers
             # optimizer G
             if opt.niter_fix_global > 0:                
@@ -164,7 +168,10 @@ class Pix2PixHDModel(BaseModel):
         return input_label, inst_map, real_image, feat_map
 
     def discriminate(self, input_label, test_image, use_pool=False):
-        input_concat = torch.cat((input_label, test_image.detach()), dim=1)
+        if input_label is None:
+            input_concat = test_image.detach()
+        else:
+            input_concat = torch.cat((input_label, test_image.detach()), dim=1)
         if use_pool:            
             fake_query = self.fake_pool.query(input_concat)
             return self.netD.forward(fake_query)
@@ -180,28 +187,22 @@ class Pix2PixHDModel(BaseModel):
             if not self.opt.load_features:
                 feat_map = self.netE.forward(real_image, inst_map)                     
             input_concat = torch.cat((input_label, feat_map), dim=1)
-        elif mask is not None:
-            input_concat = torch.cat((input_label, mask), dim=1)
-            real_concat = torch.cat((real_image, mask), dim=1)
         else:
             input_concat = input_label
             real_concat = real_image
-        fake_image = self.netG.forward(input_concat)
+        fake_image_mask = self.netG.forward(input_concat)
+        fake_image, fake_mask = fake_image_mask[:, :-1], fake_image_mask[:, [-1]]
 
         # Fake Detection and Loss
-        if mask is not None:
-            fake_concat = torch.cat((fake_image, mask), dim=1)
-        else:
-            fake_concat = fake_image
-        pred_fake_pool = self.discriminate(input_label, fake_concat, use_pool=True)
+        pred_fake_pool = self.discriminate(None, fake_image_mask, use_pool=True)
         loss_D_fake = self.criterionGAN(pred_fake_pool, False)        
 
         # Real Detection and Loss        
-        pred_real = self.discriminate(input_label, real_concat)
+        pred_real = self.discriminate(None, torch.cat((real_image, mask), dim=1))
         loss_D_real = self.criterionGAN(pred_real, True)
 
         # GAN loss (Fake Passability Loss)        
-        pred_fake = self.netD.forward(torch.cat((input_label, fake_concat), dim=1))
+        pred_fake = self.netD.forward(fake_image_mask)
         loss_G_GAN = self.criterionGAN(pred_fake, True)               
         
         # GAN feature matching loss
@@ -222,7 +223,6 @@ class Pix2PixHDModel(BaseModel):
         losses_to_return = self.loss_filter(loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, loss_D_real, loss_D_fake)
 
         # color preservation loss
-
         if self.opt.color_pres_loss_w > 0.0:
             loss_G_color = self.opt.color_pres_loss_w * self.color_pres_loss(fake_image, input_concat)
             losses_to_return.append(loss_G_color)
@@ -230,6 +230,10 @@ class Pix2PixHDModel(BaseModel):
         if self.opt.color_stats_loss_w > 0.0:
             loss_G_color_stats = self.opt.color_stats_loss_w * self.color_stats_loss(fake_image, input_concat)
             losses_to_return.append(loss_G_color_stats)
+
+        if self.opt.segm_loss_w > 0.0:
+            loss_G_mask_bce = self.opt.segm_loss_w * self.mask_loss(fake_mask, mask)
+            losses_to_return.append(loss_G_mask_bce)
 
         # Only return the fake_B image if necessary to save BW
         return [losses_to_return, None if not infer else fake_image]

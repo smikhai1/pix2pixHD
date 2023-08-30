@@ -45,7 +45,7 @@ class Pix2PixHDModel(BaseModel):
         # Discriminator network
         if self.isTrain:
             use_sigmoid = opt.no_lsgan
-            netD_input_nc = input_nc + opt.output_nc
+            netD_input_nc = opt.output_nc
             if not opt.no_instance:
                 netD_input_nc += 1
             if opt.sn:
@@ -97,7 +97,7 @@ class Pix2PixHDModel(BaseModel):
                 self.loss_names.append('G_color_stats')
 
             if opt.segm_loss_w > 0.0:
-                self.segm_loss = nn.BCELoss()
+                self.segm_loss = nn.BCEWithLogitsLoss()
                 self.loss_names.append('G_mask_loss')
 
             # initialize optimizers
@@ -190,8 +190,8 @@ class Pix2PixHDModel(BaseModel):
         else:
             input_concat = input_label
             real_concat = real_image
-        fake_image_mask = self.netG.forward(input_concat)
-        fake_image, fake_mask = fake_image_mask[:, :-1], fake_image_mask[:, [-1]]
+        fake_image, fake_mask = self.netG.forward(input_concat)
+        fake_image_mask = torch.cat((fake_image, torch.sigmoid(fake_mask)), dim=1)
 
         # Fake Detection and Loss
         pred_fake_pool = self.discriminate(None, fake_image_mask, use_pool=True)
@@ -232,7 +232,7 @@ class Pix2PixHDModel(BaseModel):
             losses_to_return.append(loss_G_color_stats)
 
         if self.opt.segm_loss_w > 0.0:
-            loss_G_mask_bce = self.opt.segm_loss_w * self.mask_loss(fake_mask, mask)
+            loss_G_mask_bce = self.opt.segm_loss_w * self.segm_loss(fake_mask, mask)
             losses_to_return.append(loss_G_mask_bce)
 
         # Only return the fake_B image if necessary to save BW
@@ -336,8 +336,8 @@ class Pix2PixHDModel(BaseModel):
     def simple_inference(self, input_img):
         self.netG.eval()
         with torch.no_grad():
-            fake_image = self.netG(input_img)
-        return fake_image
+            fake_image, fake_mask = self.netG(input_img)
+        return fake_image, fake_mask
 
     def update_learning_rate(self):
         lrd = self.opt.lr / self.opt.niter_decay

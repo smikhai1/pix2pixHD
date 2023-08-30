@@ -47,4 +47,6 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--not_save_concats', action='store_true', default=False, help='Whether not to save concats')
         self.parser.add_argument('--use_wandb', action='store_true', default=False,
                                  help='Use WandB for loggin experiment')
+        self.parser.add_argument('--segm_loss_w', type=float, default=0.0,
+                                 help='Mask segmentation loss weight')
         self.isTrain = True

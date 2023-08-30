@@ -61,8 +61,7 @@ def run_inference(model, epoch, opt):
             if opt.fp16:
                 img_proc = img_proc.to(dtype=torch.float16)
             with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
-                fake_img = model.simple_inference(img_proc)
-                fake_img = fake_img[:, :-1]
+                fake_img, fake_mask = model.simple_inference(img_proc)
             fake_img = postprocess_image(fake_img)
 
             if not opt.not_save_concats:

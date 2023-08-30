@@ -223,8 +223,7 @@ class GlobalGenerator(nn.Module):
             model += [UpsampleBlock(up_block_type, in_channels, out_channels, norm_layer(out_channels), activation)]
 
         last_block = [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
-        if not predict_offset:
-            last_block.append(nn.Tanh())
+
         model += last_block
         self.model = nn.Sequential(*model)
         self.input_nc = input_nc
@@ -244,7 +243,9 @@ class GlobalGenerator(nn.Module):
                 zeros = torch.zeros(b, d, h, w, dtype=input.dtype, device=input.device)
                 return torch.cat((input, zeros), dim=1) + out
         else:
-            return out
+            out, mask = torch.split(out, (3, 1), dim=1)
+            out = torch.tanh(out)
+            return out, mask
         
 # Define a resnet block
 class ResnetBlock(nn.Module):

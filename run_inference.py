@@ -3,6 +3,7 @@ from glob import glob
 import numpy as np
 import os
 from tqdm import tqdm
+import torch
 
 from util.util import preprocess_image, postprocess_image
 from util.misc import save_image, load_image
@@ -28,15 +29,24 @@ def parse_args():
     parser.add_argument('--norm', type=str, default='layer')
     parser.add_argument('--up_block_type', type=str, default='up_conv')
     parser.add_argument('--predict_offset', action='store_true', default=False)
+    parser.add_argument('--output_nc', type=int, default=4)
 
     args = parser.parse_args()
 
     return args
 
 
+def postprocess_mask(mask):
+    mask = torch.sigmoid(mask)
+    mask = mask.cpu().numpy().squeeze()
+    mask = np.tile(mask[..., None], reps=(1, 1, 3))
+    mask = (255.0 * mask).astype(np.uint8)
+    return mask
+
+
 def inference(opt):
 
-    model = GlobalGenerator(input_nc=3, output_nc=3, ngf=opt.ngf, netG=opt.netG,
+    model = GlobalGenerator(input_nc=3, output_nc=opt.output_nc, ngf=opt.ngf, netG=opt.netG,
                             n_downsample_global=opt.n_downsample_global, n_blocks_global=opt.n_blocks_global,
                             n_local_enhancers=opt.n_local_enhancers, n_blocks_local=opt.n_blocks_local,
                             norm=opt.norm, device=opt.device, up_block_type=opt.up_block_type,
@@ -55,9 +65,9 @@ def inference(opt):
         img_name = os.path.basename(img_path)
         img_proc = preprocess_image(img, device=opt.device)
 
-        fake_img = model(img_proc)
-        fake_img = postprocess_image(fake_img)
-        merged = np.concatenate((img, fake_img[..., ::-1]), axis=1)
+        fake_img, fake_mask = model(img_proc)
+        fake_img, fake_mask = postprocess_image(fake_img), postprocess_mask(fake_mask)
+        merged = np.concatenate((img, fake_img[..., ::-1], fake_mask), axis=1)
 
         save_image(os.path.join(imgs_result_dir, img_name), fake_img, to_bgr=True)
         save_image(os.path.join(imgs_src_result_dir, img_name), merged, to_bgr=False)

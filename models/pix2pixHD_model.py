@@ -191,7 +191,11 @@ class Pix2PixHDModel(BaseModel):
             input_concat = input_label
             real_concat = real_image
         fake_image, fake_mask = self.netG.forward(input_concat)
-        fake_image_mask = torch.cat((fake_image, torch.sigmoid(fake_mask)), dim=1)
+
+        fake_mask_sigm = torch.sigmoid(fake_mask)
+        fake_image = (1.0 - fake_mask_sigm) * input_concat + fake_mask_sigm * fake_image
+
+        fake_image_mask = torch.cat((fake_image, fake_mask_sigm), dim=1)
 
         # Fake Detection and Loss
         pred_fake_pool = self.discriminate(None, fake_image_mask, use_pool=True)
@@ -337,6 +341,8 @@ class Pix2PixHDModel(BaseModel):
         self.netG.eval()
         with torch.no_grad():
             fake_image, fake_mask = self.netG(input_img)
+            fake_mask_sigm = torch.sigmoid(fake_mask)
+            fake_image = (1.0 - fake_mask_sigm) * input_img + fake_mask_sigm * fake_image
         return fake_image, fake_mask
 
     def update_learning_rate(self):
@@ -381,8 +387,8 @@ class GlobalGenerator(nn.Module):
 
     @torch.no_grad()
     def forward(self, img):
-        fake_image = self.model(img)
-        return fake_image
+        fake_image, fake_mask = self.model(img)
+        return fake_image, fake_mask
 
 
 class Pix2pixHdImproved:

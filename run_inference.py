@@ -37,7 +37,6 @@ def parse_args():
 
 
 def postprocess_mask(mask):
-    mask = torch.sigmoid(mask)
     mask = mask.cpu().numpy().squeeze()
     mask = np.tile(mask[..., None], reps=(1, 1, 3))
     mask = (255.0 * mask).astype(np.uint8)
@@ -66,6 +65,8 @@ def inference(opt):
         img_proc = preprocess_image(img, device=opt.device)
 
         fake_img, fake_mask = model(img_proc)
+        fake_mask = torch.sigmoid(fake_mask)
+        fake_img = fake_mask * fake_img + (1.0 - fake_mask) * img_proc
         fake_img, fake_mask = postprocess_image(fake_img), postprocess_mask(fake_mask)
         merged = np.concatenate((img, fake_img[..., ::-1], fake_mask), axis=1)
 

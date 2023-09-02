@@ -223,6 +223,8 @@ class AlignedDatasetWithAugs(AlignedDataset):
             tgt_img_crop = make_crop(tgt_img, bbox)
             mask_crop = make_crop(mask, bbox)
 
+            if src_img_crop is None or tgt_img_crop is None or mask_crop is None:
+                raise RuntimeError
             augm_images = self.src_tgt_augs(image=src_img_crop,
                                             target_image=tgt_img_crop,
                                             mask=mask_crop)
@@ -235,19 +237,30 @@ class AlignedDatasetWithAugs(AlignedDataset):
         src_img = src_img_auged['image']
 
         if False:
-            save_dir = './debugging'
-            os.makedirs(save_dir, exist_ok=True)
-            concat = np.concatenate((src_img, tgt_img), axis=1)
-            cv2.imwrite(f'{save_dir}/{idx}.jpg', cv2.cvtColor(concat, cv2.COLOR_RGB2BGR))
+            debug_dir = './debug_imgs'
+            os.makedirs(debug_dir, exist_ok=True)
+            concat = [src_img,
+                      tgt_img
+                      ]
+            for i in range(len(concat)):
+                if concat[i].shape[0] != self.mask_size or concat[i].shape[1] != self.mask_size:
+                    concat[i] = cv2.resize(concat[i], (self.mask_size, self.mask_size))
+            concat = np.concatenate(concat, axis=1)
+            cv2.imwrite(os.path.join(debug_dir, f'{idx}.jpg'), cv2.cvtColor(concat, cv2.COLOR_RGB2BGR))
 
         src_img = src_img.astype(np.float32) / 255.0
         tgt_img = tgt_img.astype(np.float32) / 255.0
 
         src_img = to_tensor(src_img, mean=0.5, std=0.5)
         tgt_img = to_tensor(tgt_img, mean=0.5, std=0.5)
-        input_dict = {'label': src_img,
-                      'inst': 0, 'image': tgt_img,
+        input_dict = {'label_crop': src_img,
+                      'inst': 0, 'image_crop': tgt_img,
                       'feat': 0, 'path': src_path}
+        if 'mask' in augm_images:
+            mask = augm_images['mask']
+            mask = mask.astype(np.float32) / 255.0
+            mask = to_tensor(mask)
+            input_dict['mask_crop'] = mask
 
         return input_dict
 

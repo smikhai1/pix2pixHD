@@ -2,6 +2,13 @@ import os.path
 from data.base_dataset import BaseDataset, get_params, get_transform, normalize
 from data.image_folder import make_dataset
 from PIL import Image
+import cv2
+import numpy as np
+from omegaconf import OmegaConf
+from hydra.utils import instantiate
+import torch
+import torchvision.transforms.functional as TF
+
 
 class AlignedDataset(BaseDataset):
     def initialize(self, opt):
@@ -74,3 +81,54 @@ class AlignedDataset(BaseDataset):
 
     def name(self):
         return 'AlignedDataset'
+
+
+def to_tensor(arr, mean=None, std=None):
+    if arr is None:
+        return torch.empty(0)
+    t = TF.to_tensor(arr)
+    if mean is not None and std is not None:
+        t = TF.normalize(t, mean=mean, std=std)
+    return t
+
+
+class AlignedDatasetWithAugs(AlignedDataset):
+    def initialize(self, opt):
+        super().initialize(opt)
+        augs_config = OmegaConf.load(opt.augs_cfg_fp)
+
+        self.src_tgt_augs = instantiate(augs_config['src_tgt_augs'])
+        self.src_augs = instantiate(augs_config['src_augs'])
+
+    def __getitem__(self, idx):
+        src_path = self.A_paths[idx]
+        src_img = cv2.cvtColor(cv2.imread(src_path), cv2.COLOR_BGR2RGB)
+
+        tgt_path = self.B_paths[idx]
+        tgt_img = cv2.cvtColor(cv2.imread(tgt_path), cv2.COLOR_BGR2RGB)
+
+        augm_images = self.src_tgt_augs(image=src_img, target_image=tgt_img)
+        src_img, tgt_img = augm_images['image'], augm_images['target_image']
+
+        src_img_auged = self.src_augs(image=src_img)
+        src_img = src_img_auged['image']
+
+        if False:
+            save_dir = './debugging'
+            os.makedirs(save_dir, exist_ok=True)
+            concat = np.concatenate((src_img, tgt_img), axis=1)
+            cv2.imwrite(f'{save_dir}/{idx}.jpg', cv2.cvtColor(concat, cv2.COLOR_RGB2BGR))
+
+        src_img = src_img.astype(np.float32) / 255.0
+        tgt_img = tgt_img.astype(np.float32) / 255.0
+
+        src_img = to_tensor(src_img, mean=0.5, std=0.5)
+        tgt_img = to_tensor(tgt_img, mean=0.5, std=0.5)
+        input_dict = {'label': src_img,
+                      'inst': 0, 'image': tgt_img,
+                      'feat': 0, 'path': src_path}
+
+        return input_dict
+
+    def name(self):
+        return 'AlignedDatasetWithAugs'

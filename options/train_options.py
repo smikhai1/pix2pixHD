@@ -48,5 +48,7 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--use_wandb', action='store_true', default=False,
                                  help='Use WandB for loggin experiment')
         self.parser.add_argument('--last_conv_zeros', action='store_true', default=False)
+        self.parser.add_argument('--augs_cfg_fp', type=str, default=None,
+                                 help='Path to YAML config of augs')
 
         self.isTrain = True

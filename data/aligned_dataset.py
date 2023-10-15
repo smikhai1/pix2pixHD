@@ -38,11 +38,9 @@ class AlignedDataset(BaseDataset):
 
         self.dataset_size = len(self.A_paths)
 
-        if opt.use_mask:
-            self.masks_paths = sorted(make_dataset(opt.train_masks_dir))
-            self.mask_size = opt.loadSize
+        self.masks_paths = sorted(make_dataset(opt.train_masks_dir))
+        self.mask_size = opt.loadSize
 
-        self.use_mask = opt.use_mask
         self.class_label = opt.class_label
 
     def __getitem__(self, index):        
@@ -81,11 +79,10 @@ class AlignedDataset(BaseDataset):
                       'feat': feat_tensor, 'path': A_path}
 
         ### load mask
-        if self.use_mask:
-            mask_path = self.masks_paths[index]
-            mask, mask_arr = load_mask(mask_path, self.mask_size, class_label=self.class_label,
-                                       return_mask_arr=True)
-            input_dict['mask'] = mask
+        mask_path = self.masks_paths[index]
+        mask, mask_arr = load_mask(mask_path, self.mask_size, class_label=self.class_label,
+                                   return_mask_arr=True)
+        input_dict['mask'] = mask
 
         if False:
             debug_dir = './debug_imgs'

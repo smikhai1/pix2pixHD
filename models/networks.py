@@ -5,13 +5,14 @@ from torch.autograd import Variable
 import numpy as np
 
 from torch.nn.utils import spectral_norm
-
+import torch.nn.functional as F
+from torch_pconv import PConv2d
 ###############################################################################
 # Functions
 ###############################################################################
 def weights_init(m):
     classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
+    if classname.find('Conv') != -1 and classname.find('PConv') == -1:
         m.weight.data.normal_(0.0, 0.02)
     elif classname.find('BatchNorm2d') != -1:
         m.weight.data.normal_(1.0, 0.02)
@@ -31,11 +32,13 @@ def get_norm_layer(norm_type='instance'):
     return norm_layer
 
 def define_G(input_nc, output_nc, ngf, netG, n_downsample_global=3, n_blocks_global=9, n_local_enhancers=1, 
-             n_blocks_local=3, norm='instance', gpu_ids=[], up_block_type='conv_transpose', predict_offset=False):
+             n_blocks_local=3, norm='instance', gpu_ids=[], up_block_type='conv_transpose', predict_offset=False,
+             use_pconv=False, predict_mask=False):
     norm_layer = get_norm_layer(norm_type=norm)     
     if netG == 'global':    
         netG = GlobalGenerator(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, norm_layer,
-                               up_block_type=up_block_type, predict_offset=predict_offset)
+                               up_block_type=up_block_type, predict_offset=predict_offset, use_pconv=use_pconv,
+                               padding_type='zero', predict_mask=predict_mask)
     elif netG == 'local':        
         netG = LocalEnhancer(input_nc, output_nc, ngf, n_downsample_global, n_blocks_global, 
                                   n_local_enhancers, n_blocks_local, norm_layer)
@@ -196,41 +199,55 @@ class LocalEnhancer(nn.Module):
 
 class GlobalGenerator(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=64, n_downsampling=3, n_blocks=9, norm_layer=nn.BatchNorm2d,
-                 padding_type='reflect', up_block_type='conv_transpose', predict_offset=False):
+                 padding_type='reflect', up_block_type='conv_transpose', predict_offset=False, use_pconv=False,
+                 predict_mask=False):
         assert(n_blocks >= 0)
         super(GlobalGenerator, self).__init__()
         self.predict_offset = predict_offset
+        self.use_pconv = use_pconv
+        ConvClass = nn.Conv2d if not use_pconv else PConv2d
 
         activation = nn.LeakyReLU(negative_slope=0.2, inplace=True) #nn.ReLU(True)
 
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0), norm_layer(ngf), activation]
+        model = [ConvClass(input_nc, ngf, kernel_size=7, padding=3), norm_layer(ngf), activation]
         ### downsample
         for i in range(n_downsampling):
             mult = 2**i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1),
+            model += [ConvClass(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1),
                       norm_layer(ngf * mult * 2), activation]
 
         ### resnet blocks
         mult = 2**n_downsampling
         for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, norm_layer=norm_layer)]
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, activation=activation, norm_layer=norm_layer,
+                                  conv_class=ConvClass, use_pconv=use_pconv)]
         
         ### upsample         
         for i in range(n_downsampling):
             mult = 2**(n_downsampling - i)
             in_channels = ngf * mult
             out_channels = int(ngf * mult / 2)
-            model += [UpsampleBlock(up_block_type, in_channels, out_channels, norm_layer(out_channels), activation)]
+            model += [UpsampleBlock(up_block_type, in_channels, out_channels, norm_layer(out_channels), activation,
+                                    conv_class=ConvClass, use_pconv=use_pconv)]
 
-        last_block = [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
+        last_block = [ConvClass(ngf, output_nc, kernel_size=7, padding=3)]
 
         model += last_block
         self.model = nn.Sequential(*model)
         self.input_nc = input_nc
         self.output_nc = output_nc
+        self.predict_mask = predict_mask
 
-    def forward(self, input):
-        out = self.model(input)
+    def forward(self, input, mask=None):
+        out = input.clone()
+        for module in self.model:
+            if isinstance(module, (PConv2d, ResnetBlock, UpsampleBlock)) and mask is not None and self.use_pconv:
+                if mask.ndim == 4:
+                    mask = mask[:, 0]  # mask must be of shape [B x H x W]
+                out, mask = module(out, mask)
+            else:
+                out = module(out)
+
         if self.predict_offset:
             if self.input_nc == self.output_nc:
                 return input + out
@@ -242,18 +259,23 @@ class GlobalGenerator(nn.Module):
                 b, _, h, w = input.shape
                 zeros = torch.zeros(b, d, h, w, dtype=input.dtype, device=input.device)
                 return torch.cat((input, zeros), dim=1) + out
-        else:
+        elif self.predict_mask:
             out, mask = torch.split(out, (3, 1), dim=1)
             out = torch.tanh(out)
             return out, mask
+        else:
+            out = torch.tanh(out)
+            return out
         
 # Define a resnet block
 class ResnetBlock(nn.Module):
-    def __init__(self, dim, padding_type, norm_layer, activation=nn.ReLU(True), use_dropout=False):
+    def __init__(self, dim, padding_type, norm_layer, activation=nn.ReLU(True), use_dropout=False,
+                 conv_class=nn.Conv2d, use_pconv=False):
         super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, activation, use_dropout)
+        self.conv_class = conv_class
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, activation, use_dropout, use_pconv)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, activation, use_dropout):
+    def build_conv_block(self, dim, padding_type, norm_layer, activation, use_dropout, use_pconv):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -265,7 +287,7 @@ class ResnetBlock(nn.Module):
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
 
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p),
+        conv_block += [self.conv_class(dim, dim, kernel_size=3, padding=p),
                        norm_layer(dim),
                        activation]
         if use_dropout:
@@ -280,14 +302,25 @@ class ResnetBlock(nn.Module):
             p = 1
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p),
+        conv_block += [self.conv_class(dim, dim, kernel_size=3, padding=p),
                        norm_layer(dim)]
+
+        self.use_pconv = use_pconv
 
         return nn.Sequential(*conv_block)
 
-    def forward(self, x):
-        out = x + self.conv_block(x)
-        return out
+    def forward(self, x, mask=None):
+        out = x.clone()
+        for module in self.conv_block:
+            if isinstance(module, PConv2d) and mask is not None and self.use_pconv:
+                out, mask = module(out, mask)
+            else:
+                out = module(out)
+
+        if not self.use_pconv:
+            return x + out
+        else:
+            return x + out, mask
 
 class Encoder(nn.Module):
     def __init__(self, input_nc, output_nc, ngf=32, n_downsampling=4, norm_layer=nn.BatchNorm2d):
@@ -337,7 +370,7 @@ class CustomConv2d(nn.Conv2d):
 
 class UpsampleBlock(nn.Module):
     def __init__(self, upsample_type, in_channels, out_channels, norm_layer, activation_layer,
-                 interpolation_mode='bilinear'):
+                 interpolation_mode='bilinear', conv_class=nn.Conv2d, use_pconv=False):
         super().__init__()
         layers = []
         if upsample_type == 'conv_transpose':
@@ -346,18 +379,32 @@ class UpsampleBlock(nn.Module):
                           )
         elif upsample_type == 'up_conv':
             layers.append(nn.Upsample(scale_factor=2, mode=interpolation_mode))
-            layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=1))
+            layers.append(conv_class(in_channels, out_channels, kernel_size=3, padding=1, stride=1))
         else:
             raise ValueError('Unknown value for parameter upsample_type: ', upsample_type)
 
         layers.append(norm_layer)
         layers.append(activation_layer)
+        self.use_pconv = use_pconv
 
         self.block = nn.Sequential(*layers)
 
-    def forward(self, input):
-        output = self.block(input)
-        return output
+    def forward(self, input, mask=None):
+        out = input
+        for module in self.block:
+            if isinstance(module, PConv2d) and mask is not None and self.use_pconv:
+                out, mask = module(out, mask)
+            elif isinstance(module, nn.Upsample) and mask is not None and self.use_pconv:
+                out = module(out)
+                mask = F.interpolate(mask[:, None], scale_factor=2, mode='nearest')
+                mask = mask[:, 0]
+            else:
+                out = module(out)
+
+        if not self.use_pconv:
+            return out
+        else:
+            return out, mask
 
 
 class MultiscaleDiscriminator(nn.Module):

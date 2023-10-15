@@ -51,17 +51,22 @@ def run_inference(model, epoch, opt):
 
         if epoch > 0:
             img_proc = preprocess_image(img, device=opt.device)
-            if opt.use_mask and False:
-                mask_path = osp.join(opt.test_masks_dir, osp.splitext(img_name)[0] + '.png')
-                size = img_proc.shape[-1]
-                mask = load_mask(mask_path, size)[None]
-                mask = mask.to(device=opt.device)
-                img_proc = torch.cat((img_proc, mask), dim=1)
+            mask_path = osp.join(opt.test_masks_dir, osp.splitext(img_name)[0] + '.png')
+            size = img_proc.shape[-1]
+            mask = load_mask(mask_path, size)[None]
+            mask = mask.to(device=opt.device)
 
             if opt.fp16:
                 img_proc = img_proc.to(dtype=torch.float16)
-            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
-                fake_img, fake_mask = model.simple_inference(img_proc)
+            with torch.cuda.amp.autocast(enabled=opt.fp16):
+                if opt.use_pconv:
+                    G_output = model.simple_inference(img_proc, mask)
+                else:
+                    G_output = model.simple_inference(img_proc)
+                if isinstance(G_output, tuple):
+                    fake_img, fake_mask = G_output
+                else:
+                    fake_img = G_output
             fake_img = postprocess_image(fake_img)
 
             if not opt.not_save_concats:
@@ -159,9 +164,9 @@ for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
         save_fake = total_steps % opt.display_freq == display_delta
 
         ############## Forward Pass ######################
-        mask = data['mask'] if opt.use_mask else None
+        mask = data['mask']
 
-        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=opt.fp16):
+        with torch.cuda.amp.autocast(enabled=opt.fp16):
             losses, generated = model(Variable(data['label']), Variable(data['inst']),
                                       Variable(data['image']), Variable(data['feat']),
                                       infer=save_fake, mask=mask)

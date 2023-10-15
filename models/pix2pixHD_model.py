@@ -40,7 +40,8 @@ class Pix2PixHDModel(BaseModel):
         self.netG = networks.define_G(netG_input_nc, opt.output_nc, opt.ngf, opt.netG, 
                                       opt.n_downsample_global, opt.n_blocks_global, opt.n_local_enhancers, 
                                       opt.n_blocks_local, opt.norm, gpu_ids=self.gpu_ids,
-                                      up_block_type=opt.up_block_type, predict_offset=opt.predict_offset)
+                                      up_block_type=opt.up_block_type, predict_offset=opt.predict_offset,
+                                      use_pconv=opt.use_pconv, predict_mask=opt.predict_mask)
 
         # Discriminator network
         if self.isTrain:
@@ -190,23 +191,29 @@ class Pix2PixHDModel(BaseModel):
         else:
             input_concat = input_label
             real_concat = real_image
-        fake_image, fake_mask = self.netG.forward(input_concat)
-
-        fake_mask_sigm = torch.sigmoid(fake_mask)
-        fake_image = (1.0 - fake_mask_sigm) * input_concat + fake_mask_sigm * fake_image
-
-        fake_image_mask = torch.cat((fake_image, fake_mask_sigm), dim=1)
+        G_output = self.netG.forward(input_concat, mask)
+        if isinstance(G_output, tuple):
+            fake_image, fake_mask = G_output
+            fake_mask_sigm = torch.sigmoid(fake_mask)
+            fake_image = (1.0 - fake_mask_sigm) * input_concat + fake_mask_sigm * fake_image
+            fake_d_input = torch.cat((fake_image, fake_mask_sigm), dim=1)
+            real_d_input = torch.cat((real_image, mask), dim=1)
+        else:
+            fake_image = G_output
+            fake_mask = None
+            fake_d_input = fake_image
+            real_d_input = real_image
 
         # Fake Detection and Loss
-        pred_fake_pool = self.discriminate(None, fake_image_mask, use_pool=True)
+        pred_fake_pool = self.discriminate(None, fake_d_input, use_pool=True)
         loss_D_fake = self.criterionGAN(pred_fake_pool, False)        
 
         # Real Detection and Loss        
-        pred_real = self.discriminate(None, torch.cat((real_image, mask), dim=1))
+        pred_real = self.discriminate(None, real_d_input)
         loss_D_real = self.criterionGAN(pred_real, True)
 
         # GAN loss (Fake Passability Loss)        
-        pred_fake = self.netD.forward(fake_image_mask)
+        pred_fake = self.netD.forward(fake_d_input)
         loss_G_GAN = self.criterionGAN(pred_fake, True)               
         
         # GAN feature matching loss
@@ -337,12 +344,17 @@ class Pix2PixHDModel(BaseModel):
         if self.opt.verbose:
             print('------------ Now also finetuning global generator -----------')
 
-    def simple_inference(self, input_img):
+    def simple_inference(self, input_img, mask=None):
         self.netG.eval()
         with torch.no_grad():
-            fake_image, fake_mask = self.netG(input_img)
-            fake_mask_sigm = torch.sigmoid(fake_mask)
-            fake_image = (1.0 - fake_mask_sigm) * input_img + fake_mask_sigm * fake_image
+            G_output = self.netG(input_img, mask)
+            if isinstance(G_output, tuple):
+                fake_image, fake_mask = G_output
+                fake_mask_sigm = torch.sigmoid(fake_mask)
+                fake_image = (1.0 - fake_mask_sigm) * input_img + fake_mask_sigm * fake_image
+            else:
+                fake_image = G_output
+                fake_mask = None
         return fake_image, fake_mask
 
     def update_learning_rate(self):
@@ -371,12 +383,12 @@ class InferenceModel(Pix2PixHDModel):
 class GlobalGenerator(nn.Module):
     def __init__(self, input_nc=3, output_nc=3, ngf=64, netG='global', n_downsample_global=4,
                  n_blocks_global=9, n_local_enhancers=1, n_blocks_local=3, norm='instance',
-                 device='cuda', up_block_type='conv_transpose', predict_offset=False):
+                 device='cuda', up_block_type='conv_transpose', predict_offset=False, use_pconv=False):
         super().__init__()
         model = networks.define_G(input_nc, output_nc, ngf, netG, n_downsample_global,
                                   n_blocks_global, n_local_enhancers,
                                   n_blocks_local, norm, up_block_type=up_block_type,
-                                  predict_offset=predict_offset)
+                                  predict_offset=predict_offset, use_pconv=use_pconv)
         model = model.eval().to(device=device)
         self.device = device
         self.model = model

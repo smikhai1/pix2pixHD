@@ -51,6 +51,7 @@ class BaseOptions():
         self.parser.add_argument('--niter_fix_global', type=int, default=0, help='number of epochs that we only train the outmost local enhancer')        
         self.parser.add_argument('--up_block_type', type=str, default='conv_transpose', help='Type of the upsample block in G decoder [conv_transpose, up_conv]')
         self.parser.add_argument('--predict_offset', action='store_true', default=False, help='Make the generator to predict offset to the input image')
+        self.parser.add_argument('--use_pconv', action='store_true', default=False, help='Use partial convolutions in G')
 
         # for instance-wise features
         self.parser.add_argument('--no_instance', action='store_true', help='if specified, do *not* add instance map as input')        
@@ -63,7 +64,7 @@ class BaseOptions():
         self.parser.add_argument('--n_clusters', type=int, default=10, help='number of clusters for features')        
 
 
-        self.parser.add_argument('--use_mask', action='store_true')
+        self.parser.add_argument('--predict_mask', action='store_true')
         self.parser.add_argument('--train_masks_dir', type=str, default=None)
         self.parser.add_argument('--test_masks_dir', type=str, default=None)
         self.parser.add_argument('--class_label', type=int, default=10,

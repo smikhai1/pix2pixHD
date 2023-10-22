@@ -43,7 +43,7 @@ def run_inference(model, epoch, opt):
             continue
         img_path = os.path.join(opt.test_data_dir, img_name)
         try:
-            img = load_image(img_path, to_rgb=False, size=opt.img_size)
+            img = load_image(img_path, to_rgb=False, size=(opt.img_size, opt.img_size))
         except Exception as ex:
             print(f'During loading image following exception was caught: {str(ex)}')
             continue

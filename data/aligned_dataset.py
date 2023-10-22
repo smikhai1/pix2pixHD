@@ -69,7 +69,17 @@ class AlignedDataset(BaseDataset):
                 feat_path = self.feat_paths[index]            
                 feat = Image.open(feat_path).convert('RGB')
                 norm = normalize()
-                feat_tensor = norm(transform_A(feat))                            
+                feat_tensor = norm(transform_A(feat))
+
+        if False:
+            debug_dir = './debug_imgs'
+            os.makedirs(debug_dir, exist_ok=True)
+
+            concat = [np.array(A.resize((self.opt.loadSize, self.opt.loadSize))),
+                      np.array(B.resize((self.opt.loadSize, self.opt.loadSize)))
+                      ]
+            concat = np.concatenate(concat, axis=1)
+            cv2.imwrite(os.path.join(debug_dir, f'{index}.jpg'), cv2.cvtColor(concat, cv2.COLOR_RGB2BGR))
 
         input_dict = {'label': A_tensor, 'inst': inst_tensor, 'image': B_tensor, 
                       'feat': feat_tensor, 'path': A_path}

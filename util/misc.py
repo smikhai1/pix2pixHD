@@ -30,14 +30,17 @@ def tensor2numpy(x):
 
 
 def resize_by_longest_side(img, size):
-    h, w = img.shape[:2]
-    scale = size / max(h, w)
-    if h >= w:
-        new_h = size
-        new_w = int(scale * w)
+    if isinstance(size, tuple):
+        new_h, new_w = size
     else:
-        new_h = int(scale * h)
-        new_w = size
+        h, w = img.shape[:2]
+        scale = size / max(h, w)
+        if h >= w:
+            new_h = size
+            new_w = int(scale * w)
+        else:
+            new_h = int(scale * h)
+            new_w = size
     img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
     return img
 

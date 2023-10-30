@@ -13,29 +13,36 @@ import torchvision.transforms.functional as TF
 class AlignedDataset(BaseDataset):
     def initialize(self, opt):
         self.opt = opt
-        self.root = opt.dataroot    
+        self.root = opt.dataroot
+
+        fnames_fp = opt.names_file
+        if fnames_fp is not None:
+            with open(fnames_fp, 'r') as f:
+                names_to_use = {os.path.splitext(line.strip())[0] for line in f.readlines()}
+        else:
+            names_to_use = None
 
         ### input A (label maps)
         dir_A = '_A' if self.opt.label_nc == 0 else '_label'
         self.dir_A = os.path.join(opt.dataroot, opt.phase + dir_A)
-        self.A_paths = sorted(make_dataset(self.dir_A))
+        self.A_paths = sorted(make_dataset(self.dir_A, names_to_use))
 
         ### input B (real images)
         if opt.isTrain or opt.use_encoded_image:
             dir_B = '_B' if self.opt.label_nc == 0 else '_img'
             self.dir_B = os.path.join(opt.dataroot, opt.phase + dir_B)  
-            self.B_paths = sorted(make_dataset(self.dir_B))
+            self.B_paths = sorted(make_dataset(self.dir_B, names_to_use))
 
         ### instance maps
         if not opt.no_instance:
             self.dir_inst = os.path.join(opt.dataroot, opt.phase + '_inst')
-            self.inst_paths = sorted(make_dataset(self.dir_inst))
+            self.inst_paths = sorted(make_dataset(self.dir_inst, names_to_use))
 
         ### load precomputed instance-wise encoded features
         if opt.load_features:                              
             self.dir_feat = os.path.join(opt.dataroot, opt.phase + '_feat')
             print('----------- loading features from %s ----------' % self.dir_feat)
-            self.feat_paths = sorted(make_dataset(self.dir_feat))
+            self.feat_paths = sorted(make_dataset(self.dir_feat, names_to_use))
 
         self.dataset_size = len(self.A_paths) 
       

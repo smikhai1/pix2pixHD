@@ -18,13 +18,15 @@ def is_image_file(filename):
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
 
-def make_dataset(dir):
+def make_dataset(dir, names_to_use=None):
     images = []
     assert os.path.isdir(dir), '%s is not a valid directory' % dir
 
     for root, _, fnames in sorted(os.walk(dir)):
         for fname in fnames:
             if is_image_file(fname):
+                if names_to_use is not None and os.path.splitext(fname)[0] not in names_to_use:
+                    continue
                 path = os.path.join(root, fname)
                 images.append(path)
 

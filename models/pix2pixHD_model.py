@@ -65,7 +65,7 @@ class Pix2PixHDModel(BaseModel):
         if not self.isTrain or opt.continue_train or opt.load_pretrain:
             pretrained_path = '' if not self.isTrain else opt.load_pretrain
             self.load_network(self.netG, 'G', opt.which_epoch, pretrained_path)            
-            if self.isTrain:
+            if self.isTrain and opt.continue_train:
                 self.load_network(self.netD, 'D', opt.which_epoch, pretrained_path)  
             if self.gen_features:
                 self.load_network(self.netE, 'E', opt.which_epoch, pretrained_path)              
@@ -125,7 +125,7 @@ class Pix2PixHDModel(BaseModel):
             self.optimizer_D = torch.optim.Adam(params, lr=opt.lr, betas=(opt.beta1, 0.999))
 
             # load optimizers state dicts
-            if opt.continue_train or opt.load_pretrain:
+            if opt.continue_train:
                 self.load_optimizer(self.optimizer_G, 'G', opt.which_epoch, pretrained_path)
                 self.load_optimizer(self.optimizer_D, 'D', opt.which_epoch, pretrained_path)
                 print('[DEBUG] Optimizers were loaded successfully!')

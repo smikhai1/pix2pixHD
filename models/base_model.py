@@ -61,6 +61,7 @@ class BaseModel(torch.nn.Module):
             #network.load_state_dict(torch.load(save_path))
             try:
                 network.load_state_dict(torch.load(save_path))
+                print(f'[DEBUG] {network_label} weights were loaded successfully!')
             except:   
                 pretrained_dict = torch.load(save_path)                
                 model_dict = network.state_dict()

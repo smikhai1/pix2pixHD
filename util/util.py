@@ -53,14 +53,15 @@ def mkdir(path):
         os.makedirs(path)
 
 
-def preprocess_image(img, device='cuda'):
+def preprocess_image(img, device='cuda', to_rgb=True):
     """
     Prepares image for forward pass
     :param img:
     :param device:
     :return:
     """
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    if to_rgb:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = convert_range(img, drange_in=(0, 255), drange_out=(-1, 1))
     img = np.expand_dims(img, axis=0)
     img = torch.from_numpy(img).permute(dims=(0, 3, 1, 2))
